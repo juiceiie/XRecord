@@ -96,36 +96,46 @@ class DataService: ObservableObject {
                 at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            // 创建初始空数据文件
+            // 创建初始空数据文件（加密）
             let initialData = AppData()
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            if let jsonData = try? encoder.encode(initialData),
-               let jsonText = String(data: jsonData, encoding: .utf8) {
-                try? jsonText.write(to: url, atomically: true, encoding: .utf8)
-            }
+            saveData(initialData, to: url)
             hasBoundFile = true
             data = AppData()
             isLoaded = true
         }
     }
 
-    // MARK: - 加载
+    // MARK: - 加载（解密）
     func load() {
         guard hasBoundFile, let _ = currentFileURL else { return }
 
         if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
-                let text = try String(contentsOf: fileURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty {
-                    let decoder = JSONDecoder()
-                    decoder.dateDecodingStrategy = .iso8601
-                    data = try decoder.decode(AppData.self, from: Data(text.utf8))
+                let encryptedData = try Data(contentsOf: fileURL)
+                if !encryptedData.isEmpty {
+                    // 尝试解密
+                    if let decryptedData = EncryptionService.shared.decrypt(encryptedData) {
+                        let decoder = JSONDecoder()
+                        decoder.dateDecodingStrategy = .iso8601
+                        data = try decoder.decode(AppData.self, from: decryptedData)
+                    } else {
+                        // 可能是旧版本的明文数据，尝试直接解析
+                        if let text = String(data: encryptedData, encoding: .utf8),
+                           !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            let decoder = JSONDecoder()
+                            decoder.dateDecodingStrategy = .iso8601
+                            data = try decoder.decode(AppData.self, from: Data(text.utf8))
+                            // 重新保存为加密格式
+                            save()
+                        } else {
+                            data = AppData()
+                        }
+                    }
                 } else {
                     data = AppData()
                 }
             } catch {
+                print("加载失败: \(error)")
                 data = AppData()
             }
         } else {
@@ -134,23 +144,32 @@ class DataService: ObservableObject {
         isLoaded = true
     }
 
-    // MARK: - 保存
+    // MARK: - 保存（加密）
     func save() {
         guard hasBoundFile, let _ = currentFileURL else { return }
+        saveData(data, to: fileURL)
+    }
 
+    /// 保存数据到指定路径（加密）
+    private func saveData(_ appData: AppData, to url: URL) {
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let jsonData = try encoder.encode(data)
-            let text = String(data: jsonData, encoding: .utf8) ?? "{}"
+            let jsonData = try encoder.encode(appData)
 
-            let dir = fileURL.deletingLastPathComponent()
+            // 加密数据
+            guard let encryptedData = EncryptionService.shared.encrypt(jsonData) else {
+                print("加密失败")
+                return
+            }
+
+            let dir = url.deletingLastPathComponent()
             if !FileManager.default.fileExists(atPath: dir.path) {
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             }
 
-            try text.write(to: fileURL, atomically: true, encoding: .utf8)
+            try encryptedData.write(to: url, options: .atomic)
         } catch {
             print("保存失败: \(error)")
         }

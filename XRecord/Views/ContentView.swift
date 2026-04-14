@@ -450,6 +450,7 @@ struct AllGroupsRowView: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(isSelected ? Color.blue.opacity(0.12) : (isHovered ? Color.secondary.opacity(0.06) : Color.clear))
         )
+        .contentShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
                 .stroke(isSelected ? Color.blue.opacity(0.3) : Color.clear, lineWidth: 1)

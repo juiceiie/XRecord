@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1D43B672B5D361D4E6DCF1B6 /* EncryptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CABBEDAF8A167BDDCCD98805 /* EncryptionService.swift */; };
 		5041610A2AECE0CDBBA4B3E7 /* DataModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD57921AD8DB1EA7FD84A6E /* DataModels.swift */; };
 		5F36E8A1B8B97FF59E713F67 /* DataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0F686414B39DB12007B7F6 /* DataService.swift */; };
 		62F88386CBF1EF8472CCA0D9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ABA7383F2B27FEE58541FE07 /* Assets.xcassets */; };
@@ -15,11 +16,13 @@
 		A2579CB0B865CE88D92C0BC8 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D9CD2F75E81E9F403211BE /* AppDelegate.swift */; };
 		A2BFC11D49E477F33E46D745 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC5ACAC2150CEF8B0F6B42FD /* main.swift */; };
 		BF2F088B45C39BE6E595B1A9 /* CardEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CCC8A9219EC98256B85C605 /* CardEditView.swift */; };
+		C77EE89C881CB43E88E1E7D0 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 3353D6BC9171E96124051EFF /* AppIcon.icns */; };
 		D8B011CDDCF93268D2C1447B /* GroupEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F73C32BFBFEF8597B2551B /* GroupEditView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		23DA3C8ADC4BAEDB6A6DFB78 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
+		3353D6BC9171E96124051EFF /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 		3CEC08FCE259B2540974F3B4 /* XRecord.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XRecord.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3D039B8EBA86302DD5046873 /* XRecord.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = XRecord.entitlements; sourceTree = "<group>"; };
 		43F73C32BFBFEF8597B2551B /* GroupEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupEditView.swift; sourceTree = "<group>"; };
@@ -29,6 +32,7 @@
 		8CCC8A9219EC98256B85C605 /* CardEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardEditView.swift; sourceTree = "<group>"; };
 		ABA7383F2B27FEE58541FE07 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BC5ACAC2150CEF8B0F6B42FD /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		CABBEDAF8A167BDDCCD98805 /* EncryptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptionService.swift; sourceTree = "<group>"; };
 		ECD57921AD8DB1EA7FD84A6E /* DataModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataModels.swift; sourceTree = "<group>"; };
 		FA0F686414B39DB12007B7F6 /* DataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -55,6 +59,7 @@
 			isa = PBXGroup;
 			children = (
 				FA0F686414B39DB12007B7F6 /* DataService.swift */,
+				CABBEDAF8A167BDDCCD98805 /* EncryptionService.swift */,
 				23DA3C8ADC4BAEDB6A6DFB78 /* Extensions.swift */,
 			);
 			path = Services;
@@ -93,6 +98,7 @@
 		C7E686762FD4C6E3B5A4F811 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				3353D6BC9171E96124051EFF /* AppIcon.icns */,
 				ABA7383F2B27FEE58541FE07 /* Assets.xcassets */,
 				4802D90CA43AB1CD961471F3 /* Info.plist */,
 				3D039B8EBA86302DD5046873 /* XRecord.entitlements */,
@@ -167,6 +173,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C77EE89C881CB43E88E1E7D0 /* AppIcon.icns in Resources */,
 				62F88386CBF1EF8472CCA0D9 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -183,6 +190,7 @@
 				96C596A6EFF10796C335FDF8 /* ContentView.swift in Sources */,
 				5041610A2AECE0CDBBA4B3E7 /* DataModels.swift in Sources */,
 				5F36E8A1B8B97FF59E713F67 /* DataService.swift in Sources */,
+				1D43B672B5D361D4E6DCF1B6 /* EncryptionService.swift in Sources */,
 				96DED1057394CEBBE58FCFF0 /* Extensions.swift in Sources */,
 				D8B011CDDCF93268D2C1447B /* GroupEditView.swift in Sources */,
 				A2BFC11D49E477F33E46D745 /* main.swift in Sources */,

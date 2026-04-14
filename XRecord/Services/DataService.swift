@@ -9,6 +9,9 @@ class DataService: ObservableObject {
     @Published var data: AppData = AppData()
     @Published var isLoaded: Bool = false
 
+    /// 是否已绑定数据文件
+    @Published var hasBoundFile: Bool = false
+
     // 绑定的文件路径（UserDefaults 持久化）
     private let savedPathKey = "xrecord_file_path"
     @Published private(set) var currentFileURL: URL?
@@ -30,12 +33,12 @@ class DataService: ObservableObject {
         if let url = currentFileURL {
             return url.path
         }
-        return defaultFileURL.path + "（默认路径）"
+        return "未绑定数据文件"
     }
 
     private init() {
         loadSavedPath()
-        load()
+        // 不再自动加载，等待用户绑定文件
     }
 
     // MARK: - 路径持久化
@@ -44,9 +47,14 @@ class DataService: ObservableObject {
             let url = URL(fileURLWithPath: path)
             if FileManager.default.fileExists(atPath: path) {
                 currentFileURL = url
+                hasBoundFile = true
+                load()
             } else {
                 UserDefaults.standard.removeObject(forKey: savedPathKey)
+                hasBoundFile = false
             }
+        } else {
+            hasBoundFile = false
         }
     }
 
@@ -70,6 +78,7 @@ class DataService: ObservableObject {
 
         if panel.runModal() == .OK, let url = panel.url {
             savePath(url)
+            hasBoundFile = true
             load()
         }
     }
@@ -87,17 +96,24 @@ class DataService: ObservableObject {
                 at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            try? "".write(to: url, atomically: true, encoding: .utf8)
-            load()
+            // 创建初始空数据文件
+            let initialData = AppData()
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let jsonData = try? encoder.encode(initialData),
+               let jsonText = String(data: jsonData, encoding: .utf8) {
+                try? jsonText.write(to: url, atomically: true, encoding: .utf8)
+            }
+            hasBoundFile = true
+            data = AppData()
+            isLoaded = true
         }
     }
 
     // MARK: - 加载
     func load() {
-        let dir = fileURL.deletingLastPathComponent()
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
+        guard hasBoundFile, let _ = currentFileURL else { return }
 
         if FileManager.default.fileExists(atPath: fileURL.path) {
             do {
@@ -106,16 +122,22 @@ class DataService: ObservableObject {
                     let decoder = JSONDecoder()
                     decoder.dateDecodingStrategy = .iso8601
                     data = try decoder.decode(AppData.self, from: Data(text.utf8))
+                } else {
+                    data = AppData()
                 }
             } catch {
                 data = AppData()
             }
+        } else {
+            data = AppData()
         }
         isLoaded = true
     }
 
     // MARK: - 保存
     func save() {
+        guard hasBoundFile, let _ = currentFileURL else { return }
+
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
@@ -138,6 +160,7 @@ class DataService: ObservableObject {
     func resetAll() {
         data = AppData()
         savePath(nil)
+        hasBoundFile = false
         try? FileManager.default.removeItem(at: defaultFileURL)
     }
 

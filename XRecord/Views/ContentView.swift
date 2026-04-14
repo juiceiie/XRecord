@@ -11,54 +11,121 @@ struct ContentView: View {
     @State private var showBindFile = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            // 左侧分组导航
-            GroupListView(
-                selectedGroupId: $selectedGroupId,
-                showAddGroup: $showAddGroup,
-                editingGroup: $editingGroup,
-                showBindFile: $showBindFile
-            )
-            .frame(width: 220)
+        // 未绑定文件时显示欢迎界面
+        if !dataService.hasBoundFile {
+            WelcomeView(showBindFile: $showBindFile)
+                .frame(minWidth: 700, minHeight: 450)
+        } else {
+            HStack(spacing: 0) {
+                // 左侧分组导航
+                GroupListView(
+                    selectedGroupId: $selectedGroupId,
+                    showAddGroup: $showAddGroup,
+                    editingGroup: $editingGroup,
+                    showBindFile: $showBindFile
+                )
+                .frame(width: 220)
 
-            Divider()
+                Divider()
 
-            // 右侧内容区
-            CardListView(
-                selectedGroupId: $selectedGroupId,
-                showAddCard: $showAddCard,
-                editingCard: $editingCard,
-                searchText: $searchText
-            )
-        }
-        .frame(minWidth: 700, minHeight: 450)
-        .onReceive(NotificationCenter.default.publisher(for: .openAddGroup)) { _ in
-            showAddGroup = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .openAddCard)) { _ in
-            if selectedGroupId != nil {
-                showAddCard = true
+                // 右侧内容区
+                CardListView(
+                    selectedGroupId: $selectedGroupId,
+                    showAddCard: $showAddCard,
+                    editingCard: $editingCard,
+                    searchText: $searchText
+                )
+            }
+            .frame(minWidth: 700, minHeight: 450)
+            .onReceive(NotificationCenter.default.publisher(for: .openAddGroup)) { _ in
+                showAddGroup = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openAddCard)) { _ in
+                if selectedGroupId != nil {
+                    showAddCard = true
+                }
+            }
+            .sheet(isPresented: $showAddGroup) {
+                GroupEditView(
+                    isPresented: $showAddGroup,
+                    editingGroup: $editingGroup
+                )
+            }
+            .sheet(isPresented: $showAddCard) {
+                CardEditView(
+                    isPresented: $showAddCard,
+                    editingCard: $editingCard,
+                    groupId: selectedGroupId ?? (dataService.data.groups.first?.id)
+                )
+            }
+            .sheet(isPresented: $showBindFile) {
+                BindFileView(isPresented: $showBindFile)
+            }
+            .onAppear {
+                // 默认选中"全部"
+                selectedGroupId = nil
             }
         }
-        .sheet(isPresented: $showAddGroup) {
-            GroupEditView(
-                isPresented: $showAddGroup,
-                editingGroup: $editingGroup
-            )
+    }
+}
+
+// MARK: - 欢迎/首次使用界面
+
+struct WelcomeView: View {
+    @Binding var showBindFile: Bool
+
+    var body: some View {
+        VStack(spacing: 30) {
+            Spacer()
+
+            // Logo
+            Image(systemName: "lock.shield")
+                .font(.system(size: 80))
+                .foregroundColor(.blue)
+
+            VStack(spacing: 12) {
+                Text("欢迎使用 XRecord")
+                    .font(.system(size: 28, weight: .bold))
+
+                Text("简洁优雅的账号密码管理工具")
+                    .font(.system(size: 16))
+                    .foregroundColor(.secondary)
+            }
+
+            VStack(spacing: 16) {
+                Text("开始使用前，请先绑定一个数据文件")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+
+                Button(action: { showBindFile = true }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 16))
+                        Text("选择或创建数据文件")
+                            .font(.system(size: 15, weight: .medium))
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+
+            Spacer()
+
+            VStack(spacing: 8) {
+                Text("💡 数据将安全存储在本地文件中")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text("你可以随时更换数据文件的存储位置")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .padding(.bottom, 30)
         }
-        .sheet(isPresented: $showAddCard) {
-            CardEditView(
-                isPresented: $showAddCard,
-                editingCard: $editingCard,
-                groupId: selectedGroupId ?? (dataService.data.groups.first?.id)
-            )
-        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .sheet(isPresented: $showBindFile) {
             BindFileView(isPresented: $showBindFile)
-        }
-        .onAppear {
-            // 默认选中"全部"
-            selectedGroupId = nil
         }
     }
 }

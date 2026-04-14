@@ -19,16 +19,18 @@
 - **本地存储** — 数据存储在本地文件，完全可控
 - **文件绑定** — 可绑定任意位置的数据文件
 
-### 🔒 安全便捷
+### 🔒 安全隐私
+- **AES-256 加密** — 数据文件加密存储，防止内容泄露
+- **跨设备同步** — 复制数据文件到其他设备即可使用
 - **密码显示/隐藏** — 一键切换，保护隐私
 - **快速复制** — 复制按钮一键复制账号密码
-- **链接直达** — 点击网址直接用浏览器打开
 
 ### 🎨 界面设计
 - **原生体验** — 完美适配 macOS 视觉风格
 - **同色点缀** — 卡片自动继承分组颜色
 - **拖拽排序** — 自由调整卡片顺序
 - **搜索功能** — 快速定位需要的记录
+- **首次欢迎页** — 新用户友好的引导界面
 
 ### ⚡ 轻量高效
 - **Menu Bar 入口** — 菜单栏快速访问
@@ -39,78 +41,35 @@
 
 ### 方法一：下载 Release（推荐）
 1. 进入 [Releases](https://github.com/juiceiie/XRecord/releases) 页面
-2. 下载最新版本的 `.zip` 文件
+2. 下载最新版本的 `.dmg` 文件
 3. 解压后拖入应用程序文件夹
 
 ### 方法二：从源码编译
 ```bash
-# 克隆仓库
 git clone https://github.com/juiceiie/XRecord.git
 cd XRecord
-
-# 打开 Xcode 项目
 open XRecord.xcodeproj
-
-# 在 Xcode 中点击运行 (⌘R)
 ```
 
-## 数据文件
+## 数据加密
 
-首次运行会提示创建或选择数据文件，默认存储为 `~/Desktop/xrecord/record.txt`（JSON 格式）。
+数据采用 **AES-256-GCM** 加密算法：
+- 文件内容不可直接阅读
+- 复制文件到其他设备可正常解密
+- 无需额外密码
 
-文件格式示例：
-```json
-{
-  "appTitle": "XRecord",
-  "groups": [
-    {
-      "id": "uuid",
-      "name": "生产环境",
-      "colorHex": "4f6ef7",
-      "order": 0
-    }
-  ],
-  "cards": [
-    {
-      "id": "uuid",
-      "groupId": "uuid",
-      "name": "GitHub",
-      "url": "https://github.com",
-      "username": "user@example.com",
-      "password": "password123",
-      "note": "工作账号",
-      "createdAt": "2026-04-14T10:00:00Z"
-    }
-  ]
-}
-```
+## 更新日志
 
-## 系统要求
+### v1.0.1 (2026-04-14)
+- 🔐 数据文件 AES-256-GCM 加密存储
+- 🔧 修复添加条目时的加密 bug
+- 📝 添加日志服务
+- ✨ 首次启动显示欢迎界面
+- 🎨 优化点击区域
 
-- macOS 13.0 (Ventura) 或更高版本
-- Apple Silicon / Intel Mac
-
-## 技术栈
-
-- **Swift 5.9** — 编程语言
-- **SwiftUI** — 声明式 UI 框架
-- **AppKit** — 原生系统集成
-- **Xcode 15+** — 开发工具
-
-## 参与贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
+### v1.0.0 (2026-04-14)
+- 🎉 首个正式版本发布
 
 ## 开源协议
 
-本项目基于 [MIT License](LICENSE) 开源。
-
----
-
-⭐ 如果这个项目对你有帮助，请给我一个 Star！
+[MIT License](LICENSE)

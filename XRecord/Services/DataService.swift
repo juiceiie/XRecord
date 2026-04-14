@@ -46,6 +46,16 @@ class DataService: ObservableObject {
         if let path = UserDefaults.standard.string(forKey: savedPathKey) {
             let url = URL(fileURLWithPath: path)
             if FileManager.default.fileExists(atPath: path) {
+                // 读取文件盐值
+                if let data = try? Data(contentsOf: url), !data.isEmpty {
+                    if let salt = EncryptionService.extractSalt(from: data) {
+                        EncryptionService.shared.setupForExistingFile(salt: salt)
+                    } else {
+                        EncryptionService.shared.setupForNewFile()
+                    }
+                } else {
+                    EncryptionService.shared.setupForNewFile()
+                }
                 currentFileURL = url
                 hasBoundFile = true
                 load()
@@ -79,6 +89,18 @@ class DataService: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url {
             savePath(url)
             hasBoundFile = true
+            // 如果文件存在且有内容，读取盐值
+            if let data = try? Data(contentsOf: url), !data.isEmpty {
+                if let salt = EncryptionService.extractSalt(from: data) {
+                    EncryptionService.shared.setupForExistingFile(salt: salt)
+                } else {
+                    // 未加密的旧文件，设置为新盐值
+                    EncryptionService.shared.setupForNewFile()
+                }
+            } else {
+                // 空文件，设置为新盐值
+                EncryptionService.shared.setupForNewFile()
+            }
             load()
         }
     }
@@ -96,6 +118,8 @@ class DataService: ObservableObject {
                 at: url.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
+            // 为新文件设置加密盐值
+            EncryptionService.shared.setupForNewFile()
             // 创建初始空数据文件（加密）
             let initialData = AppData()
             saveData(initialData, to: url)

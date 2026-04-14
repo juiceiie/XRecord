@@ -1,0 +1,23 @@
+# Xcode
+## User settings
+*.xcuserstate
+*.xcworkspace
+xcuserdata/
+
+## Build generated
+build/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+## CocoaPods
+Pods/
+
+## Swift Package Manager
+*.swiftpm/
+
+## Misc
+.DS_Store
+*.log

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import os.log
 
 // MARK: - 日志服务

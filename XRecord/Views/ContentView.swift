@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var dataService: DataService
+    @StateObject private var updateService = UpdateService.shared
     @State private var selectedGroupId: String? = nil
     @State private var showAddGroup = false
     @State private var showAddCard = false
@@ -9,6 +10,9 @@ struct ContentView: View {
     @State private var editingCard: Card? = nil
     @State private var searchText = ""
     @State private var showBindFile = false
+    @State private var showUpdateAlert = false
+    @State private var showSettings = false
+    @State private var pendingRelease: AppRelease? = nil
 
     var body: some View {
         // 未绑定文件时显示欢迎界面
@@ -22,7 +26,8 @@ struct ContentView: View {
                     selectedGroupId: $selectedGroupId,
                     showAddGroup: $showAddGroup,
                     editingGroup: $editingGroup,
-                    showBindFile: $showBindFile
+                    showBindFile: $showBindFile,
+                    showSettings: $showSettings
                 )
                 .frame(width: 220)
 
@@ -61,11 +66,152 @@ struct ContentView: View {
             .sheet(isPresented: $showBindFile) {
                 BindFileView(isPresented: $showBindFile)
             }
+            .sheet(isPresented: $showSettings) {
+                SettingsView(isPresented: $showSettings)
+                    .environmentObject(updateService)
+            }
+            // 有新版本时弹出更新提示（自定义弹窗，支持忽略按钮）
+            .sheet(isPresented: $showUpdateAlert) {
+                if let release = updateService.latestRelease {
+                    UpdateAlertView(
+                        release: release,
+                        currentVersion: updateService.currentVersion,
+                        onDownload: {
+                            updateService.openDownloadPage()
+                            showUpdateAlert = false
+                        },
+                        onIgnoreOnce: {
+                            showUpdateAlert = false
+                        },
+                        onIgnoreForever: {
+                            updateService.ignoreVersion(release.version)
+                            updateService.recheckAfterIgnore()
+                            showUpdateAlert = false
+                        }
+                    )
+                }
+            }
             .onAppear {
-                // 默认选中"全部"
                 selectedGroupId = nil
             }
+            .onChange(of: updateService.hasUpdate) { hasUpdate in
+                if hasUpdate { showUpdateAlert = true }
+            }
         }
+    }
+}
+
+// MARK: - 更新提示弹窗
+
+struct UpdateAlertView: View {
+    let release: AppRelease
+    let currentVersion: String
+    let onDownload: () -> Void
+    let onIgnoreOnce: () -> Void
+    let onIgnoreForever: () -> Void
+
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 标题栏
+            HStack {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 16))
+                    .foregroundColor(.orange)
+                Text("发现新版本 🎉")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 16)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                // 版本信息
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text("当前版本")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("v\(currentVersion)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
+                    HStack(spacing: 8) {
+                        Text("最新版本")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text("v\(release.version)")
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.orange)
+                    }
+                    .padding(10)
+                    .background(Color.orange.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                // Release notes
+                if !release.releaseNotes.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("更新内容")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+                        Text(release.releaseNotes)
+                            .font(.system(size: 12))
+                            .foregroundColor(.primary)
+                            .lineLimit(5)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(10)
+                    .background(Color.secondary.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Divider()
+
+            // 按钮组
+            HStack(spacing: 10) {
+                Button(action: onIgnoreOnce) {
+                    Text("本次忽略")
+                        .font(.system(size: 13))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+
+                Button(action: onIgnoreForever) {
+                    Text("永久忽略")
+                        .font(.system(size: 13))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+
+                Button(action: onDownload) {
+                    HStack(spacing: 4) {
+                        Text("前往下载")
+                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 11))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 14)
+            .padding(.bottom, 18)
+        }
+        .frame(width: 400)
     }
 }
 
@@ -259,6 +405,7 @@ struct GroupListView: View {
     @Binding var showAddGroup: Bool
     @Binding var editingGroup: Group?
     @Binding var showBindFile: Bool
+    @Binding var showSettings: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -322,23 +469,35 @@ struct GroupListView: View {
 
             Divider()
 
-            // 底部文件绑定入口
+            // 底部操作区
             VStack(spacing: 6) {
-                Button(action: { showBindFile = true }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 11))
-                            .foregroundColor(.blue)
-                        Text("绑定数据文件")
-                            .font(.system(size: 11))
-                            .foregroundColor(.blue)
+                HStack(spacing: 8) {
+                    Button(action: { showBindFile = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 11))
+                                .foregroundColor(.blue)
+                            Text("绑定文件")
+                                .font(.system(size: 11))
+                                .foregroundColor(.blue)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.blue.opacity(0.1))
+                        .clipShape(Capsule())
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.blue.opacity(0.1))
-                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("设置")
                 }
-                .buttonStyle(.plain)
 
                 Text(dataService.filePathDisplay)
                     .font(.system(size: 10, design: .monospaced))
@@ -885,5 +1044,196 @@ struct CardFieldRow: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+    }
+}
+
+// MARK: - 设置页
+
+struct SettingsView: View {
+    @EnvironmentObject var updateService: UpdateService
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 标题栏
+            HStack {
+                Text("设置")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Button(action: { isPresented = false }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+
+                    // ── 关于 ──
+                    SectionHeader(title: "关于")
+
+                    HStack(spacing: 14) {
+                        Image(nsImage: NSApp.applicationIconImage)
+                            .resizable()
+                            .frame(width: 48, height: 48)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("XRecord")
+                                .font(.system(size: 15, weight: .semibold))
+                            Text("版本 \(updateService.currentVersion)")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                            Text("简洁优雅的密码管理工具")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+
+                    Divider().padding(.horizontal, 20)
+
+                    // ── 更新 ──
+                    SectionHeader(title: "更新")
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        // 版本状态行
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                if updateService.isChecking {
+                                    HStack(spacing: 6) {
+                                        ProgressView().scaleEffect(0.7)
+                                        Text("正在检查更新…")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(.secondary)
+                                    }
+                                } else if updateService.hasUpdate, let release = updateService.latestRelease {
+                                    HStack(spacing: 6) {
+                                        Circle().fill(Color.orange).frame(width: 8, height: 8)
+                                        Text("发现新版本 v\(release.version)")
+                                            .font(.system(size: 13, weight: .medium))
+                                            .foregroundColor(.orange)
+                                    }
+                                } else if updateService.latestRelease != nil {
+                                    HStack(spacing: 6) {
+                                        Circle().fill(Color.green).frame(width: 8, height: 8)
+                                        Text("已是最新版本")
+                                            .font(.system(size: 13))
+                                            .foregroundColor(.secondary)
+                                    }
+                                } else {
+                                    Text("当前版本 v\(updateService.currentVersion)")
+                                        .font(.system(size: 13))
+                                        .foregroundColor(.secondary)
+                                }
+
+                                if let errMsg = updateService.lastCheckError {
+                                    Text("检查失败：\(errMsg)")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.red)
+                                }
+                            }
+                            Spacer()
+
+                            // 按钮组
+                            HStack(spacing: 8) {
+                                Button(action: { updateService.checkForUpdates() }) {
+                                    Label(updateService.isChecking ? "检查中…" : "检查更新",
+                                          systemImage: "arrow.clockwise")
+                                        .font(.system(size: 12))
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(updateService.isChecking)
+
+                                if updateService.hasUpdate {
+                                    Button(action: {
+                                        updateService.openDownloadPage()
+                                        isPresented = false
+                                    }) {
+                                        Label("前往下载", systemImage: "arrow.down.circle")
+                                            .font(.system(size: 12))
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                }
+                            }
+                        }
+
+                        // 新版本 release notes
+                        if updateService.hasUpdate,
+                           let notes = updateService.latestRelease?.releaseNotes,
+                           !notes.isEmpty {
+                            Text(notes)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .padding(10)
+                                .background(Color.secondary.opacity(0.06))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .lineLimit(6)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+
+                    Divider().padding(.horizontal, 20)
+
+                    // ── 数据 ──
+                    SectionHeader(title: "数据")
+
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("GitHub 仓库")
+                                .font(.system(size: 13))
+                            Text("查看源码和提交反馈")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Button(action: {
+                            NSWorkspace.shared.open(URL(string: "https://github.com/juiceiie/XRecord")!)
+                        }) {
+                            Label("打开", systemImage: "arrow.up.right.square")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("关闭") { isPresented = false }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+        .frame(width: 480, height: 420)
+    }
+}
+
+// 设置页分区标题
+struct SectionHeader: View {
+    let title: String
+    var body: some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(.secondary)
+            .textCase(.uppercase)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 6)
     }
 }

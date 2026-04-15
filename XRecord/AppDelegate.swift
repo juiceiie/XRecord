@@ -30,6 +30,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 显示 Dock 图标（设为 false 则在 Dock 中隐藏）
         NSApp.setActivationPolicy(.accessory)
+
+        // 启动后延迟 3 秒检查更新（避免阻塞启动）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            Task { @MainActor in
+                UpdateService.shared.checkForUpdates()
+            }
+        }
     }
 
     private func setupStatusBar() {

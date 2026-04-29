@@ -6,6 +6,9 @@ struct GroupEditView: View {
     @EnvironmentObject var dataService: DataService
     @Binding var isPresented: Bool
     @Binding var editingGroup: Group?
+    
+    // 新增：新建分组后自动选中的回调
+    var onGroupCreated: ((String) -> Void)? = nil
 
     @State private var name: String = ""
     @State private var selectedColor: String = Group.defaultColors[0]
@@ -147,11 +150,14 @@ struct GroupEditView: View {
             g.name = trimmed
             g.colorHex = selectedColor
             dataService.updateGroup(g)
+            isPresented = false
         } else {
             let newGroup = Group(name: trimmed, colorHex: selectedColor)
             dataService.addGroup(newGroup)
+            // 新建分组后，通过回调通知 ContentView 自动选中这个分组
+            onGroupCreated?(newGroup.id)
+            isPresented = false
         }
-        isPresented = false
     }
 }
 

@@ -1,13 +1,28 @@
 import SwiftUI
 
+// 包装器：解决 @MainActor singleton + @StateObject 的初始化兼容问题
+@MainActor
+class UpdateServiceWrapper: ObservableObject {
+    let service = UpdateService.shared
+}
+
 struct ContentView: View {
     @EnvironmentObject var dataService: DataService
-    @StateObject private var updateService = UpdateService.shared
+    @StateObject private var updateServiceWrapper: UpdateServiceWrapper
+
+    init() {
+        // 使用包装器避免 @MainActor + @StateObject 的初始化问题
+        _updateServiceWrapper = StateObject(wrappedValue: UpdateServiceWrapper())
+    }
+
+    private var updateService: UpdateService { updateServiceWrapper.service }
     @State private var selectedGroupId: String? = nil
     @State private var showAddGroup = false
     @State private var showAddCard = false
     @State private var editingGroup: Group? = nil
     @State private var editingCard: Card? = nil
+    // 固定分组ID：用于添加卡片时保持触发时的分组选择
+    @State private var fixedGroupIdForAddCard: String? = nil
     @State private var searchText = ""
     @State private var showBindFile = false
     @State private var showUpdateAlert = false
@@ -38,7 +53,12 @@ struct ContentView: View {
                     selectedGroupId: $selectedGroupId,
                     showAddCard: $showAddCard,
                     editingCard: $editingCard,
-                    searchText: $searchText
+                    searchText: $searchText,
+                    onPrepareAddCard: { groupId in
+                        // 先锁定分组，再打开 sheet，保证 groupId 在 sheet 出现前已设好
+                        fixedGroupIdForAddCard = groupId
+                        showAddCard = true
+                    }
                 )
             }
             .frame(minWidth: 700, minHeight: 450)
@@ -47,20 +67,32 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .openAddCard)) { _ in
                 if selectedGroupId != nil {
+                    // 立即固定分组ID，避免延迟导致分组变化
+                    fixedGroupIdForAddCard = selectedGroupId
+                    showAddCard = true
+                } else if let firstGroupId = dataService.data.groups.first?.id {
+                    // 如果没有选中分组，使用第一个分组
+                    fixedGroupIdForAddCard = firstGroupId
                     showAddCard = true
                 }
             }
             .sheet(isPresented: $showAddGroup) {
                 GroupEditView(
                     isPresented: $showAddGroup,
-                    editingGroup: $editingGroup
+                    editingGroup: $editingGroup,
+                    onGroupCreated: { newGroupId in
+                        // 新建分组后自动选中它
+                        selectedGroupId = newGroupId
+                    }
                 )
             }
             .sheet(isPresented: $showAddCard) {
+                // groupId 优先取编辑中的卡片分组，否则取按下"添加"时锁定的分组
+                let resolvedGroupId = editingCard?.groupId ?? fixedGroupIdForAddCard
                 CardEditView(
                     isPresented: $showAddCard,
                     editingCard: $editingCard,
-                    groupId: selectedGroupId ?? (dataService.data.groups.first?.id)
+                    groupId: resolvedGroupId
                 )
             }
             .sheet(isPresented: $showBindFile) {
@@ -418,7 +450,10 @@ struct GroupListView: View {
                         dataService.save()
                     }
                 Spacer()
-                Button(action: { showAddGroup = true }) {
+                Button(action: {
+                    editingGroup = nil  // 确保是新建模式
+                    showAddGroup = true
+                }) {
                     Image(systemName: "plus")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.blue)
@@ -627,6 +662,7 @@ struct CardListView: View {
     @Binding var showAddCard: Bool
     @Binding var editingCard: Card?
     @Binding var searchText: String
+    var onPrepareAddCard: ((String?) -> Void)? = nil
 
     var selectedGroup: Group? {
         dataService.data.groups.first { $0.id == selectedGroupId }
@@ -704,12 +740,15 @@ struct CardListView: View {
                 .background(Color.secondary.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                Button(action: { showAddCard = true }) {
+                Button(action: {
+                    let targetGroupId = selectedGroupId ?? dataService.data.groups.first?.id
+                    onPrepareAddCard?(targetGroupId)
+                }) {
                     Label("添加条目", systemImage: "plus")
                         .font(.system(size: 13))
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(selectedGroupId == nil && dataService.data.groups.isEmpty)
+                .disabled(dataService.data.groups.isEmpty)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)

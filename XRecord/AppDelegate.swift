@@ -2,36 +2,29 @@ import AppKit
 import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var window: NSWindow?
-    var statusItem: NSStatusItem?
+    // 使用 strong reference 确保 window 不会被释放
+    private var mainWindow: NSWindow?
+    // 使用自定义标志追踪窗口可见性（避免调用 isVisible）
+    private var isWindowShown = true
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // 点击 Dock 图标时，如果窗口不可见则显示
+        if !flag || mainWindow == nil || !mainWindow!.isVisible {
+            showMainWindow()
+        }
+        return true
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // 创建主窗口
-        let contentView = ContentView()
-            .environmentObject(DataService.shared)
-
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window?.minSize = NSSize(width: 700, height: 450)
-        window?.center()
-        window?.title = "XRecord"
-        window?.contentView = NSHostingView(rootView: contentView)
-        window?.makeKeyAndOrderFront(nil)
-
-        // 设置 Menu Bar 状态栏图标
-        setupStatusBar()
-
+        print("[XRecord] 🚀 applicationDidFinishLaunching 开始")
+        
+        // 创建主窗口（保持强引用）
+        setupMainWindow()
+        
         // 设置主菜单
         setupMainMenu()
-
-        // 显示 Dock 图标（设为 false 则在 Dock 中隐藏）
-        NSApp.setActivationPolicy(.accessory)
-
-        // 启动后延迟 3 秒检查更新（避免阻塞启动）
+        
+        // 启动后延迟 3 秒检查更新
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             Task { @MainActor in
                 UpdateService.shared.checkForUpdates()
@@ -39,26 +32,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func setupStatusBar() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private func setupMainWindow() {
+        let contentView = ContentView()
+            .environmentObject(DataService.shared)
 
-        if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "doc.text", accessibilityDescription: "XRecord")
-            button.image?.isTemplate = true
-        }
-
-        let menu = NSMenu()
-
-        menu.addItem(NSMenuItem(title: "显示主窗口", action: #selector(showWindow), keyEquivalent: "o"))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "新建分组", action: #selector(addGroup), keyEquivalent: "n"))
-        menu.addItem(NSMenuItem(title: "添加条目", action: #selector(addCard), keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "重置所有数据", action: #selector(resetAll), keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-
-        statusItem?.menu = menu
+        mainWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        mainWindow?.minSize = NSSize(width: 700, height: 450)
+        mainWindow?.center()
+        mainWindow?.title = "XRecord"
+        mainWindow?.contentView = NSHostingView(rootView: contentView)
+        mainWindow?.makeKeyAndOrderFront(nil)
+        mainWindow?.delegate = self
+        // 关键：防止窗口关闭后被释放，避免 EXC_BAD_ACCESS
+        mainWindow?.isReleasedWhenClosed = false
     }
 
     private func setupMainMenu() {
@@ -69,16 +60,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "关于 XRecord", action: #selector(showAbout), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "隐藏窗口", action: #selector(hideWindow), keyEquivalent: "h"))
-        appMenu.addItem(NSMenuItem(title: "退出", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(NSMenuItem(title: "隐藏 XRecord", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
+        appMenu.addItem(NSMenuItem(title: "隐藏其他应用", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "显示所有应用", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(NSMenuItem(title: "退出 XRecord", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu
         mainMenu.addItem(appMenuItem)
 
         // 文件菜单
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "文件")
-        fileMenu.addItem(NSMenuItem(title: "新建分组", action: #selector(addGroup), keyEquivalent: "n"))
-        fileMenu.addItem(NSMenuItem(title: "添加条目", action: #selector(addCard), keyEquivalent: "N"))
+        fileMenu.addItem(NSMenuItem(title: "新建分组", action: #selector(addGroupAction), keyEquivalent: "n"))
+        fileMenu.addItem(NSMenuItem(title: "添加条目", action: #selector(addCardAction), keyEquivalent: "N"))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(NSMenuItem(title: "重置所有数据", action: #selector(resetAll), keyEquivalent: ""))
         fileMenuItem.submenu = fileMenu
@@ -103,34 +97,71 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowMenu.addItem(NSMenuItem(title: "最小化", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m"))
         windowMenu.addItem(NSMenuItem(title: "缩放", action: #selector(NSWindow.zoom(_:)), keyEquivalent: ""))
         windowMenu.addItem(NSMenuItem.separator())
-        windowMenu.addItem(NSMenuItem(title: "显示主窗口", action: #selector(showWindow), keyEquivalent: "1"))
+        windowMenu.addItem(NSMenuItem(title: "显示主窗口", action: #selector(toggleMainWindow), keyEquivalent: "1"))
+        windowMenu.addItem(NSMenuItem(title: "置顶", action: #selector(toggleFloating), keyEquivalent: "t"))
         windowMenuItem.submenu = windowMenu
         mainMenu.addItem(windowMenuItem)
 
         NSApp.mainMenu = mainMenu
+        
+        // 设置窗口菜单为 macOS 的标准窗口菜单
+        NSApp.windowsMenu = windowMenu
     }
 
-    @objc func showWindow() {
-        window?.makeKeyAndOrderFront(nil)
+    // MARK: - 窗口控制
+
+    @objc func toggleMainWindow() {
+        guard let window = mainWindow else { return }
+
+        if window.isVisible {
+            window.orderOut(nil)
+        } else {
+            window.deminiaturize(nil)
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    @objc func showMainWindow() {
+        guard let window = mainWindow else { return }
+        
+        window.deminiaturize(nil)
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc func hideWindow() {
-        window?.orderOut(nil)
+    @objc func hideMainWindow() {
+        mainWindow?.orderOut(nil)
+    }
+
+    @objc func toggleFloating() {
+        guard let window = mainWindow else { return }
+        
+        if window.level == .floating {
+            window.level = .normal
+        } else {
+            window.level = .floating
+        }
     }
 
     @objc func showAbout() {
         NSApp.orderFrontStandardAboutPanel(nil)
     }
 
-    @objc func addGroup() {
-        showWindow()
-        NotificationCenter.default.post(name: .openAddGroup, object: nil)
+    // MARK: - 数据操作
+
+    @objc func addGroupAction() {
+        showMainWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NotificationCenter.default.post(name: .openAddGroup, object: nil)
+        }
     }
 
-    @objc func addCard() {
-        showWindow()
-        NotificationCenter.default.post(name: .openAddCard, object: nil)
+    @objc func addCardAction() {
+        showMainWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NotificationCenter.default.post(name: .openAddCard, object: nil)
+        }
     }
 
     @objc func resetAll() {
@@ -144,6 +175,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if alert.runModal() == .alertFirstButtonReturn {
             DataService.shared.resetAll()
         }
+    }
+}
+
+// MARK: - NSWindowDelegate
+
+extension AppDelegate: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        // 用户点击关闭按钮时，不需要额外处理
+        // 点击 Dock 图标会通过 applicationShouldHandleReopen 重新打开
     }
 }
 

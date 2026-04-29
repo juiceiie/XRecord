@@ -15,8 +15,17 @@ struct CardEditView: View {
     @State private var note: String = ""
     @State private var showPassword: Bool = false
     @State private var currentEditingId: String? = nil
+    @State private var showGroupError: Bool = false
 
     var isEditing: Bool { editingCard != nil }
+    
+    // 获取当前绑定的分组名称
+    private var groupName: String {
+        if let gid = groupId, let group = dataService.data.groups.first(where: { $0.id == gid }) {
+            return group.name
+        }
+        return "未分组"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +34,21 @@ struct CardEditView: View {
                 Text(isEditing ? "编辑条目" : "添加条目")
                     .font(.system(size: 16, weight: .semibold))
                 Spacer()
+                // 显示当前分组
+                if !isEditing {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(Color(hex: dataService.data.groups.first(where: { $0.id == groupId })?.colorHex ?? "#888888"))
+                            .frame(width: 8, height: 8)
+                        Text(groupName)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.1))
+                    .clipShape(Capsule())
+                }
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .medium))
@@ -54,8 +78,6 @@ struct CardEditView: View {
                                 Text("密码")
                                     .font(.system(size: 12, weight: .medium))
                                     .foregroundColor(.secondary)
-                                Text("*")
-                                    .foregroundColor(.red)
                             }
                             HStack {
                                 if showPassword {
@@ -115,6 +137,11 @@ struct CardEditView: View {
             .padding(.vertical, 14)
         }
         .frame(width: 500, height: 480)
+        .alert("请先选择一个分组", isPresented: $showGroupError) {
+            Button("确定") { isPresented = false }
+        } message: {
+            Text("添加条目前请先在左侧选择一个分组，或者点击「全部」后使用第一个分组。")
+        }
         .onAppear {
             if let c = editingCard {
                 currentEditingId = c.id
@@ -135,7 +162,8 @@ struct CardEditView: View {
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
         guard !trimmedName.isEmpty else { return }
         guard let gid = groupId else {
-            isPresented = false
+            // 如果没有分组，提示用户先选择分组
+            showGroupError = true
             return
         }
 

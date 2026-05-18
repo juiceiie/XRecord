@@ -9,7 +9,7 @@
 
 ## 截图
 
-![XRecord 截图](screenshots/screenshot.png)
+![XRecord 截图](https://raw.githubusercontent.com/juiceiie/XRecord/main/screenshots/screenshot-v1.0.5.png)
 
 ## 功能特点
 
@@ -59,6 +59,12 @@ open XRecord.xcodeproj
 - 无需额外密码
 
 ## 更新日志
+
+### v1.0.5 (2026-05-18)
+- ✨ 删除操作添加确认弹窗
+- 🐛 修复删除弹窗鼠标移入消失问题
+- 🐛 修复新建分组后添加条目显示未分组的 Bug
+- ✨ 全部记录视图卡片右上角显示分组名称
 
 ### v1.0.1 (2026-04-14)
 - 🔐 数据文件 AES-256-GCM 加密存储

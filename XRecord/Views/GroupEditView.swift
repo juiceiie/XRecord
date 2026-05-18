@@ -134,18 +134,21 @@ struct GroupEditView: View {
                 selectedColor = g.colorHex
             }
         }
-        .onDisappear {
-            editingGroup = nil
-            currentEditingId = nil
-        }
     }
 
     private func save() {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
 
-        if let editId = currentEditingId,
-           let existing = dataService.data.groups.first(where: { $0.id == editId }) {
+        // 判断是编辑已有分组还是新建分组
+        let editId = currentEditingId
+
+        // 提前清理 editingGroup，避免 onDisappear 在 onGroupCreated 之后触发导致 selectedGroupId 被清掉
+        editingGroup = nil
+        currentEditingId = nil
+
+        if let id = editId,
+           let existing = dataService.data.groups.first(where: { $0.id == id }) {
             var g = existing
             g.name = trimmed
             g.colorHex = selectedColor

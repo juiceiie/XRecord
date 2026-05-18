@@ -556,6 +556,7 @@ struct GroupRowView: View {
     let onDelete: () -> Void
 
     @State private var isHovered = false
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -585,7 +586,7 @@ struct GroupRowView: View {
                 }
                 .buttonStyle(.plain)
 
-                Button(action: onDelete) {
+                Button(action: { showDeleteConfirm = true }) {
                     Image(systemName: "trash")
                         .font(.system(size: 10))
                         .foregroundColor(.red.opacity(0.7))
@@ -606,6 +607,12 @@ struct GroupRowView: View {
         )
         .onTapGesture { onSelect() }
         .onHover { hovering in isHovered = hovering }
+        .alert("删除分组", isPresented: $showDeleteConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) { onDelete() }
+        } message: {
+            Text("确定要删除分组「\(group.name)」吗？该分组下的所有条目也会一并删除，此操作不可恢复。")
+        }
     }
 }
 
@@ -797,7 +804,8 @@ struct CardListView: View {
                                     },
                                     onDelete: {
                                         dataService.deleteCard(id: card.id)
-                                    }
+                                    },
+                                    showGroupName: true
                                 )
                             }
                         }
@@ -906,15 +914,21 @@ struct CardItemView: View {
     let dataService: DataService
     let onEdit: () -> Void
     let onDelete: () -> Void
+    var showGroupName: Bool = false
 
     @State private var showPassword = false
     @State private var isHovered = false
+    @State private var showDeleteConfirm = false
 
     private var groupColor: Color {
         if let group = dataService.data.groups.first(where: { $0.id == card.groupId }) {
             return Color(hex: group.colorHex)
         }
         return .gray
+    }
+
+    private var cardGroupName: String? {
+        dataService.data.groups.first { $0.id == card.groupId }?.name
     }
 
     var body: some View {
@@ -925,6 +939,20 @@ struct CardItemView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
                 Spacer()
+                if showGroupName, let groupName = cardGroupName {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(groupColor)
+                            .frame(width: 6, height: 6)
+                        Text(groupName)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.secondary.opacity(0.1))
+                    .clipShape(Capsule())
+                }
                 if isHovered {
                     Button(action: onEdit) {
                         Image(systemName: "pencil")
@@ -933,7 +961,7 @@ struct CardItemView: View {
                     }
                     .buttonStyle(.plain)
                     .help("编辑")
-                    Button(action: onDelete) {
+                    Button(action: { showDeleteConfirm = true }) {
                         Image(systemName: "trash")
                             .font(.system(size: 11))
                             .foregroundColor(.red.opacity(0.7))
@@ -1018,6 +1046,12 @@ struct CardItemView: View {
                 .stroke(groupColor.opacity(0.2), lineWidth: 1)
         )
         .onHover { hovering in isHovered = hovering }
+        .alert("删除条目", isPresented: $showDeleteConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("删除", role: .destructive) { onDelete() }
+        } message: {
+            Text("确定要删除「\(card.name)」吗？此操作不可恢复。")
+        }
     }
 }
 

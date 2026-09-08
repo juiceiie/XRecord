@@ -87,12 +87,20 @@ struct ContentView: View {
                 )
             }
             .sheet(isPresented: $showAddCard) {
-                // groupId 优先取编辑中的卡片分组，否则取按下"添加"时锁定的分组
-                let resolvedGroupId = editingCard?.groupId ?? fixedGroupIdForAddCard
                 CardEditView(
                     isPresented: $showAddCard,
-                    editingCard: $editingCard,
-                    groupId: resolvedGroupId
+                    editingCard: nil,
+                    groupId: fixedGroupIdForAddCard
+                )
+            }
+            .sheet(item: $editingCard) { card in
+                CardEditView(
+                    isPresented: Binding(
+                        get: { editingCard != nil },
+                        set: { if !$0 { editingCard = nil } }
+                    ),
+                    editingCard: card,
+                    groupId: card.groupId
                 )
             }
             .sheet(isPresented: $showBindFile) {
@@ -771,7 +779,6 @@ struct CardListView: View {
                     searchText: searchText,
                     onEdit: { card in
                         editingCard = card
-                        showAddCard = true
                     },
                     onDelete: { card in
                         dataService.deleteCard(id: card.id)
@@ -800,7 +807,6 @@ struct CardListView: View {
                                     dataService: dataService,
                                     onEdit: {
                                         editingCard = card
-                                        showAddCard = true
                                     },
                                     onDelete: {
                                         dataService.deleteCard(id: card.id)

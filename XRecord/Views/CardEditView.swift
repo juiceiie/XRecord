@@ -5,7 +5,7 @@ import SwiftUI
 struct CardEditView: View {
     @EnvironmentObject var dataService: DataService
     @Binding var isPresented: Bool
-    @Binding var editingCard: Card?
+    let editingCard: Card?
     var groupId: String?
 
     @State private var name: String = ""
@@ -152,10 +152,7 @@ struct CardEditView: View {
                 note = c.note
             }
         }
-        .onDisappear {
-            editingCard = nil
-            currentEditingId = nil
-        }
+        .onDisappear { currentEditingId = nil }
     }
 
     private func save() {

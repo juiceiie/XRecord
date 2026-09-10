@@ -1,0 +1,23 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>XRecord</title>
+        <item>
+            <title>1.1.0</title>
+            <pubDate>Thu, 10 Sep 2026 15:13:24 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.1.0
+
+- 接入 Sparkle 2，支持应用内一键下载、安装并重新启动。
+- 支持自动检查更新，也可以从应用菜单或设置页手动检查。
+- 使用 EdDSA 签名验证更新包完整性。
+- 地址字段支持选择并直接启动 macOS 应用。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.1.0/XRecord-v1.1.0.dmg" length="3162994" type="application/octet-stream" sparkle:edSignature="o6+XqE/v8hnXd1H5qm5wLj9LL06/TTRQgGCXVy/GTB+JJnsz33meyH/J7Gr34EptZFcRDzCT7hzprmk3JRcUDw=="/>
+        </item>
+    </channel>
+</rss>

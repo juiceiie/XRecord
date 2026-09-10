@@ -22,6 +22,14 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>SUFeedURL</key>
+    <string>https://raw.githubusercontent.com/juiceiie/XRecord/main/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>bVaC2IPrk3EnC+dlfeQf8ZCMsiwHaiZ4vDb2SLycIMo=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
     <key>LSMinimumSystemVersion</key>
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>LSUIElement</key>

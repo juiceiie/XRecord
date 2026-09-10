@@ -25,9 +25,7 @@ struct ContentView: View {
     @State private var fixedGroupIdForAddCard: String? = nil
     @State private var searchText = ""
     @State private var showBindFile = false
-    @State private var showUpdateAlert = false
     @State private var showSettings = false
-    @State private var pendingRelease: AppRelease? = nil
 
     var body: some View {
         // 未绑定文件时显示欢迎界面
@@ -110,148 +108,10 @@ struct ContentView: View {
                 SettingsView(isPresented: $showSettings)
                     .environmentObject(updateService)
             }
-            // 有新版本时弹出更新提示（自定义弹窗，支持忽略按钮）
-            .sheet(isPresented: $showUpdateAlert) {
-                if let release = updateService.latestRelease {
-                    UpdateAlertView(
-                        release: release,
-                        currentVersion: updateService.currentVersion,
-                        onDownload: {
-                            updateService.openDownloadPage()
-                            showUpdateAlert = false
-                        },
-                        onIgnoreOnce: {
-                            showUpdateAlert = false
-                        },
-                        onIgnoreForever: {
-                            updateService.ignoreVersion(release.version)
-                            updateService.recheckAfterIgnore()
-                            showUpdateAlert = false
-                        }
-                    )
-                }
-            }
             .onAppear {
                 selectedGroupId = nil
             }
-            .onChange(of: updateService.hasUpdate) { hasUpdate in
-                if hasUpdate { showUpdateAlert = true }
-            }
         }
-    }
-}
-
-// MARK: - 更新提示弹窗
-
-struct UpdateAlertView: View {
-    let release: AppRelease
-    let currentVersion: String
-    let onDownload: () -> Void
-    let onIgnoreOnce: () -> Void
-    let onIgnoreForever: () -> Void
-
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // 标题栏
-            HStack {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .font(.system(size: 16))
-                    .foregroundColor(.orange)
-                Text("发现新版本 🎉")
-                    .font(.system(size: 16, weight: .semibold))
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 16)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 12) {
-                // 版本信息
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text("当前版本")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("v\(currentVersion)")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.secondary)
-                    }
-                    HStack(spacing: 8) {
-                        Text("最新版本")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text("v\(release.version)")
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.orange)
-                    }
-                    .padding(10)
-                    .background(Color.orange.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-
-                // Release notes
-                if !release.releaseNotes.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("更新内容")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
-                        Text(release.releaseNotes)
-                            .font(.system(size: 12))
-                            .foregroundColor(.primary)
-                            .lineLimit(5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(10)
-                    .background(Color.secondary.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-
-            Divider()
-
-            // 按钮组
-            HStack(spacing: 10) {
-                Button(action: onIgnoreOnce) {
-                    Text("本次忽略")
-                        .font(.system(size: 13))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-
-                Button(action: onIgnoreForever) {
-                    Text("永久忽略")
-                        .font(.system(size: 13))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.regular)
-
-                Button(action: onDownload) {
-                    HStack(spacing: 4) {
-                        Text("前往下载")
-                            .font(.system(size: 13, weight: .medium))
-                        Image(systemName: "arrow.down")
-                            .font(.system(size: 11))
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
-            .padding(.bottom, 18)
-        }
-        .frame(width: 400)
     }
 }
 
@@ -1187,79 +1047,32 @@ struct SettingsView: View {
                     SectionHeader(title: "更新")
 
                     VStack(alignment: .leading, spacing: 10) {
-                        // 版本状态行
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
-                                if updateService.isChecking {
-                                    HStack(spacing: 6) {
-                                        ProgressView().scaleEffect(0.7)
-                                        Text("正在检查更新…")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(.secondary)
-                                    }
-                                } else if updateService.hasUpdate, let release = updateService.latestRelease {
-                                    HStack(spacing: 6) {
-                                        Circle().fill(Color.orange).frame(width: 8, height: 8)
-                                        Text("发现新版本 v\(release.version)")
-                                            .font(.system(size: 13, weight: .medium))
-                                            .foregroundColor(.orange)
-                                    }
-                                } else if updateService.latestRelease != nil {
-                                    HStack(spacing: 6) {
-                                        Circle().fill(Color.green).frame(width: 8, height: 8)
-                                        Text("已是最新版本")
-                                            .font(.system(size: 13))
-                                            .foregroundColor(.secondary)
-                                    }
-                                } else {
-                                    Text("当前版本 v\(updateService.currentVersion)")
-                                        .font(.system(size: 13))
-                                        .foregroundColor(.secondary)
-                                }
-
-                                if let errMsg = updateService.lastCheckError {
-                                    Text("检查失败：\(errMsg)")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.red)
-                                }
+                                Text("当前版本 v\(updateService.currentVersion)")
+                                    .font(.system(size: 13))
+                                Text("由 Sparkle 安全下载、安装并重新启动")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
                             }
                             Spacer()
 
-                            // 按钮组
-                            HStack(spacing: 8) {
-                                Button(action: { updateService.checkForUpdates() }) {
-                                    Label(updateService.isChecking ? "检查中…" : "检查更新",
-                                          systemImage: "arrow.clockwise")
-                                        .font(.system(size: 12))
-                                }
-                                .buttonStyle(.bordered)
-                                .disabled(updateService.isChecking)
-
-                                if updateService.hasUpdate {
-                                    Button(action: {
-                                        updateService.openDownloadPage()
-                                        isPresented = false
-                                    }) {
-                                        Label("前往下载", systemImage: "arrow.down.circle")
-                                            .font(.system(size: 12))
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                }
+                            Button(action: { updateService.checkForUpdates() }) {
+                                Label("检查更新", systemImage: "arrow.clockwise")
+                                    .font(.system(size: 12))
                             }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!updateService.canCheckForUpdates)
                         }
 
-                        // 新版本 release notes
-                        if updateService.hasUpdate,
-                           let notes = updateService.latestRelease?.releaseNotes,
-                           !notes.isEmpty {
-                            Text(notes)
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                                .padding(10)
-                                .background(Color.secondary.opacity(0.06))
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .lineLimit(6)
-                        }
+                        Toggle(
+                            "自动检查更新",
+                            isOn: Binding(
+                                get: { updateService.automaticallyChecksForUpdates },
+                                set: { updateService.setAutomaticallyChecksForUpdates($0) }
+                            )
+                        )
+                        .font(.system(size: 12))
                     }
                     .padding(.horizontal, 20)
                     .padding(.vertical, 14)

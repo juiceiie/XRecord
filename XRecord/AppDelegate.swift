@@ -24,12 +24,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 设置主菜单
         setupMainMenu()
         
-        // 启动后延迟 3 秒检查更新
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            Task { @MainActor in
-                UpdateService.shared.checkForUpdates()
-            }
-        }
     }
 
     private func setupMainWindow() {
@@ -59,6 +53,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let appMenuItem = NSMenuItem()
         let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "关于 XRecord", action: #selector(showAbout), keyEquivalent: ""))
+        appMenu.addItem(NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: "隐藏 XRecord", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
         appMenu.addItem(NSMenuItem(title: "隐藏其他应用", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: ""))
@@ -109,6 +104,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // MARK: - 窗口控制
+
+    @MainActor @objc private func checkForUpdates() {
+        UpdateService.shared.checkForUpdates()
+    }
 
     @objc func toggleMainWindow() {
         guard let window = mainWindow else { return }

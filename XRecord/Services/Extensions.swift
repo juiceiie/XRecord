@@ -1,6 +1,44 @@
 import SwiftUI
 import AppKit
 
+// MARK: - 可打开目标（网址或 macOS 应用）
+
+enum LaunchTarget {
+    static func resolvedURL(from value: String) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("/") {
+            return URL(fileURLWithPath: trimmed)
+        }
+
+        if let url = URL(string: trimmed), url.scheme != nil {
+            return url
+        }
+
+        return URL(string: "https://\(trimmed)")
+    }
+
+    static func isApplication(_ value: String) -> Bool {
+        guard let url = resolvedURL(from: value), url.isFileURL else { return false }
+        return url.pathExtension.lowercased() == "app"
+    }
+
+    static func displayName(for value: String, dataService: DataService) -> String {
+        guard let url = resolvedURL(from: value) else { return value }
+        if url.isFileURL {
+            return url.deletingPathExtension().lastPathComponent
+        }
+        return dataService.shortDomain(of: url.absoluteString)
+    }
+
+    @discardableResult
+    static func open(_ value: String) -> Bool {
+        guard let url = resolvedURL(from: value) else { return false }
+        return NSWorkspace.shared.open(url)
+    }
+}
+
 // MARK: - Color 扩展：Hex 支持
 
 extension Color {

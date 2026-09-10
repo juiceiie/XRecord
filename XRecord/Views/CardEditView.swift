@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - 条目编辑弹窗
 
@@ -67,8 +69,8 @@ struct CardEditView: View {
                     // 名称
                     FormFieldInput(label: "名称", placeholder: "例如：后台管理系统", text: $name, required: true)
 
-                    // 地址
-                    FormFieldInput(label: "地址 URL", placeholder: "https://example.com", text: $url)
+                    // 网址或本机应用
+                    LaunchTargetInput(text: $url)
 
                     // 账号密码
                     HStack(spacing: 14) {
@@ -185,6 +187,49 @@ struct CardEditView: View {
             dataService.addCard(newCard)
         }
         isPresented = false
+    }
+}
+
+// MARK: - 网址或应用选择
+
+struct LaunchTargetInput: View {
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("网址或应用")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                TextField("https://example.com 或选择一个应用", text: $text)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 14))
+
+                Button(action: selectApplication) {
+                    Image(systemName: "app.badge")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.bordered)
+                .help("选择 macOS 应用")
+            }
+        }
+    }
+
+    private func selectApplication() {
+        let panel = NSOpenPanel()
+        panel.title = "选择要打开的应用"
+        panel.prompt = "选择"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.treatsFilePackagesAsDirectories = false
+
+        if panel.runModal() == .OK, let selectedURL = panel.url {
+            text = selectedURL.path
+        }
     }
 }
 

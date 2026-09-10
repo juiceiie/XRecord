@@ -985,10 +985,10 @@ struct CardItemView: View {
             // 地址
             if !card.url.isEmpty {
                 CardFieldRow(
-                    label: "地址",
+                    label: LaunchTarget.isApplication(card.url) ? "应用" : "地址",
                     value: card.url,
-                    shortValue: dataService.shortDomain(of: card.url),
-                    isURL: true
+                    shortValue: LaunchTarget.displayName(for: card.url, dataService: dataService),
+                    isLaunchTarget: true
                 )
             }
 
@@ -998,7 +998,6 @@ struct CardItemView: View {
                     label: "账号",
                     value: card.username,
                     shortValue: card.username,
-                    isURL: false,
                     isSecret: false
                 )
             }
@@ -1009,7 +1008,6 @@ struct CardItemView: View {
                     label: "密码",
                     value: card.password,
                     shortValue: showPassword ? card.password : String(repeating: "•", count: min(card.password.count, 12)),
-                    isURL: false,
                     isSecret: true,
                     showSecret: $showPassword
                 )
@@ -1065,7 +1063,7 @@ struct CardFieldRow: View {
     let label: String
     let value: String
     let shortValue: String
-    var isURL: Bool = false
+    var isLaunchTarget: Bool = false
     var isSecret: Bool = false
     var showSecret: Binding<Bool>? = nil
     var dataService: DataService? = nil
@@ -1077,12 +1075,16 @@ struct CardFieldRow: View {
                 .foregroundColor(.secondary)
                 .frame(width: 34, alignment: .leading)
 
-            if isURL, let url = URL(string: value) {
-                Button(action: { NSWorkspace.shared.open(url) }) {
-                    Text(shortValue)
-                        .font(.system(size: 12))
-                        .foregroundColor(.blue)
-                        .lineLimit(1)
+            if isLaunchTarget {
+                Button(action: { LaunchTarget.open(value) }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: LaunchTarget.isApplication(value) ? "app" : "safari")
+                            .font(.system(size: 10))
+                        Text(shortValue)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(.blue)
                 }
                 .buttonStyle(.plain)
                 .help(value)

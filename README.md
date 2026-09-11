@@ -60,6 +60,10 @@ open XRecord.xcodeproj
 
 ## 更新日志
 
+### v1.1.1 (2026-09-11)
+- 🐛 修复无 Apple Developer 签名时 Sparkle 框架因 Library Validation 导致应用启动崩溃
+- 🔧 允许加载随应用发布的 Sparkle 更新框架
+
 ### v1.1.0 (2026-09-10)
 - ✨ 接入 Sparkle 2，支持应用内一键下载、安装并重启
 - ✨ 支持自动检查更新和应用菜单手动检查

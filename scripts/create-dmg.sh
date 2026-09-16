@@ -60,10 +60,22 @@ APPLESCRIPT
 sync
 hdiutil detach "$MOUNT_DIR" -quiet
 mkdir -p "$(dirname "$OUTPUT_PATH")"
-hdiutil convert "$RW_DMG" \
-    -format UDZO \
-    -imagekey zlib-level=9 \
-    -ov \
-    -o "$OUTPUT_PATH" >/dev/null
+
+# hdiutil may keep the detached image busy briefly while Finder flushes metadata.
+for attempt in 1 2 3; do
+    if hdiutil convert "$RW_DMG" \
+        -format UDZO \
+        -imagekey zlib-level=9 \
+        -ov \
+        -o "$OUTPUT_PATH" >/dev/null; then
+        break
+    fi
+
+    if [[ "$attempt" -eq 3 ]]; then
+        echo "Failed to convert DMG after $attempt attempts" >&2
+        exit 1
+    fi
+    sleep 2
+done
 
 echo "Created $OUTPUT_PATH"

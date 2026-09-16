@@ -4,6 +4,9 @@ import SwiftUI
 class AppDelegate: NSObject, NSApplicationDelegate {
     // 使用 strong reference 确保 window 不会被释放
     private var mainWindow: NSWindow?
+    // 状态栏对象必须保持强引用，否则图标会被系统移除
+    private var statusItem: NSStatusItem?
+    private var quickViewMenu: NSMenu?
     // 使用自定义标志追踪窗口可见性（避免调用 isVisible）
     private var isWindowShown = true
 
@@ -23,6 +26,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // 设置主菜单
         setupMainMenu()
+
+        // 设置常驻菜单栏图标
+        setupStatusItem()
         
     }
 
@@ -103,6 +109,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.windowsMenu = windowMenu
     }
 
+    private func setupStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let button = item.button {
+            let image = NSImage(named: "MenuBarIcon")
+            image?.isTemplate = true
+            image?.size = NSSize(width: 18, height: 18)
+            button.image = image
+            button.toolTip = "XRecord"
+        }
+
+        let menu = NSMenu()
+
+        let showItem = NSMenuItem(
+            title: "显示 XRecord",
+            action: #selector(showMainWindow),
+            keyEquivalent: ""
+        )
+        showItem.target = self
+        menu.addItem(showItem)
+
+        let quickViewItem = NSMenuItem(title: "快速查看", action: nil, keyEquivalent: "")
+        let quickMenu = NSMenu(title: "快速查看")
+        quickMenu.delegate = self
+        quickViewItem.submenu = quickMenu
+        menu.addItem(quickViewItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let quitItem = NSMenuItem(
+            title: "退出 XRecord",
+            action: #selector(quitApplication),
+            keyEquivalent: ""
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        item.menu = menu
+        quickViewMenu = quickMenu
+        statusItem = item
+    }
+
     // MARK: - 窗口控制
 
     @MainActor @objc private func checkForUpdates() {
@@ -147,6 +194,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.orderFrontStandardAboutPanel(nil)
     }
 
+    @objc private func quitApplication() {
+        NSApp.terminate(nil)
+    }
+
     // MARK: - 数据操作
 
     @objc func addGroupAction() {
@@ -160,6 +211,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showMainWindow()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             NotificationCenter.default.post(name: .openAddCard, object: nil)
+        }
+    }
+
+    @objc private func quickView(_ sender: NSMenuItem) {
+        guard let groupId = sender.representedObject as? String,
+              DataService.shared.data.groups.contains(where: { $0.id == groupId }) else {
+            return
+        }
+
+        showMainWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NotificationCenter.default.post(name: .selectGroup, object: groupId)
         }
     }
 
@@ -186,7 +249,44 @@ extension AppDelegate: NSWindowDelegate {
     }
 }
 
+// MARK: - NSMenuDelegate
+
+extension AppDelegate: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === quickViewMenu else { return }
+
+        menu.removeAllItems()
+
+        guard DataService.shared.hasBoundFile else {
+            let item = NSMenuItem(title: "请先绑定数据文件", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+
+        let groups = DataService.shared.data.groups
+        guard !groups.isEmpty else {
+            let item = NSMenuItem(title: "暂无分类", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+
+        for group in groups {
+            let item = NSMenuItem(
+                title: group.name,
+                action: #selector(quickView(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = group.id
+            menu.addItem(item)
+        }
+    }
+}
+
 extension Notification.Name {
     static let openAddGroup = Notification.Name("openAddGroup")
     static let openAddCard = Notification.Name("openAddCard")
+    static let selectGroup = Notification.Name("selectGroup")
 }

@@ -40,6 +40,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        .terminateNow
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        quickSearchController?.hide()
+        GlobalHotKeyService.shared.onHotKey = nil
+        GlobalHotKeyService.shared.suspend()
+    }
+
     private func setupMainWindow() {
         let contentView = ContentView()
             .environmentObject(DataService.shared)

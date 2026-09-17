@@ -31,90 +31,95 @@ struct ContentView: View {
     @State private var showSettings = false
 
     var body: some View {
-        // 未绑定文件时显示欢迎界面
-        if !dataService.hasBoundFile {
-            WelcomeView(showBindFile: $showBindFile)
-                .frame(minWidth: 700, minHeight: 450)
-        } else {
-            HStack(spacing: 0) {
+        ZStack {
+            // 未绑定文件时显示欢迎界面
+            if !dataService.hasBoundFile {
+                WelcomeView(showBindFile: $showBindFile)
+                    .frame(minWidth: 700, minHeight: 450)
+            } else {
+                HStack(spacing: 0) {
                 // 左侧分组导航
-                GroupListView(
-                    selectedGroupId: $selectedGroupId,
-                    showAddGroup: $showAddGroup,
-                    editingGroup: $editingGroup,
-                    showBindFile: $showBindFile,
-                    showSettings: $showSettings
-                )
-                .frame(width: 220)
+                    GroupListView(
+                        selectedGroupId: $selectedGroupId,
+                        showAddGroup: $showAddGroup,
+                        editingGroup: $editingGroup,
+                        showBindFile: $showBindFile,
+                        showSettings: $showSettings
+                    )
+                    .frame(width: 220)
 
-                Divider()
+                    Divider()
 
-                // 右侧内容区
-                CardListView(
-                    selectedGroupId: $selectedGroupId,
-                    editingCard: $editingCard,
-                    searchText: $searchText,
-                    onPrepareAddCard: { groupId in
-                        addCardRequest = AddCardRequest(groupId: groupId)
-                    }
-                )
+                    // 右侧内容区
+                    CardListView(
+                        selectedGroupId: $selectedGroupId,
+                        editingCard: $editingCard,
+                        searchText: $searchText,
+                        onPrepareAddCard: { groupId in
+                            addCardRequest = AddCardRequest(groupId: groupId)
+                        }
+                    )
+                }
+                .frame(minWidth: 700, minHeight: 450)
+                .onReceive(NotificationCenter.default.publisher(for: .openAddGroup)) { _ in
+                    showAddGroup = true
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .openAddCard)) { notification in
+                    let requestedGroupId = notification.object as? String
+                    let targetGroupId = requestedGroupId ?? selectedGroupId
+                    guard let targetGroup = dataService.data.groups.first(where: { $0.id == targetGroupId }) else { return }
+                    selectedGroupId = targetGroup.id
+                    addCardRequest = AddCardRequest(groupId: targetGroup.id)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .selectGroup)) { notification in
+                    guard let groupId = notification.object as? String,
+                          dataService.data.groups.contains(where: { $0.id == groupId }) else { return }
+                    selectedGroupId = groupId
+                }
+                .sheet(isPresented: $showAddGroup) {
+                    GroupEditView(
+                        isPresented: $showAddGroup,
+                        editingGroup: $editingGroup,
+                        onGroupCreated: { newGroupId in
+                            // 新建分组后自动选中它
+                            selectedGroupId = newGroupId
+                        }
+                    )
+                }
+                .sheet(item: $addCardRequest) { request in
+                    CardEditView(
+                        isPresented: Binding(
+                            get: { addCardRequest != nil },
+                            set: { if !$0 { addCardRequest = nil } }
+                        ),
+                        editingCard: nil,
+                        groupId: request.groupId
+                    )
+                }
+                .sheet(item: $editingCard) { card in
+                    CardEditView(
+                        isPresented: Binding(
+                            get: { editingCard != nil },
+                            set: { if !$0 { editingCard = nil } }
+                        ),
+                        editingCard: card,
+                        groupId: card.groupId
+                    )
+                }
+                .onAppear {
+                    selectedGroupId = nil
+                }
             }
-            .frame(minWidth: 700, minHeight: 450)
-            .onReceive(NotificationCenter.default.publisher(for: .openAddGroup)) { _ in
-                showAddGroup = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .openAddCard)) { notification in
-                let requestedGroupId = notification.object as? String
-                let targetGroupId = requestedGroupId ?? selectedGroupId
-                guard let targetGroup = dataService.data.groups.first(where: { $0.id == targetGroupId }) else { return }
-                selectedGroupId = targetGroup.id
-                addCardRequest = AddCardRequest(groupId: targetGroup.id)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .selectGroup)) { notification in
-                guard let groupId = notification.object as? String,
-                      dataService.data.groups.contains(where: { $0.id == groupId }) else { return }
-                selectedGroupId = groupId
-            }
-            .sheet(isPresented: $showAddGroup) {
-                GroupEditView(
-                    isPresented: $showAddGroup,
-                    editingGroup: $editingGroup,
-                    onGroupCreated: { newGroupId in
-                        // 新建分组后自动选中它
-                        selectedGroupId = newGroupId
-                    }
-                )
-            }
-            .sheet(item: $addCardRequest) { request in
-                CardEditView(
-                    isPresented: Binding(
-                        get: { addCardRequest != nil },
-                        set: { if !$0 { addCardRequest = nil } }
-                    ),
-                    editingCard: nil,
-                    groupId: request.groupId
-                )
-            }
-            .sheet(item: $editingCard) { card in
-                CardEditView(
-                    isPresented: Binding(
-                        get: { editingCard != nil },
-                        set: { if !$0 { editingCard = nil } }
-                    ),
-                    editingCard: card,
-                    groupId: card.groupId
-                )
-            }
-            .sheet(isPresented: $showBindFile) {
-                BindFileView(isPresented: $showBindFile)
-            }
-            .sheet(isPresented: $showSettings) {
-                SettingsView(isPresented: $showSettings)
-                    .environmentObject(updateService)
-            }
-            .onAppear {
-                selectedGroupId = nil
-            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
+            showSettings = true
+        }
+        .sheet(isPresented: $showBindFile) {
+            BindFileView(isPresented: $showBindFile)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(isPresented: $showSettings)
+                .environmentObject(updateService)
         }
     }
 }
@@ -174,9 +179,6 @@ struct WelcomeView: View {
             .padding(.bottom, 30)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .sheet(isPresented: $showBindFile) {
-            BindFileView(isPresented: $showBindFile)
-        }
     }
 }
 
@@ -192,7 +194,7 @@ struct BindFileView: View {
             HStack {
                 Text("绑定数据文件")
                     .font(.system(size: 16, weight: .semibold))
-                Spacer()
+                    Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .medium))
@@ -851,7 +853,8 @@ struct CardItemView: View {
                     label: LaunchTarget.isApplication(card.url) ? "应用" : "地址",
                     value: card.url,
                     shortValue: LaunchTarget.displayName(for: card.url, dataService: dataService),
-                    isLaunchTarget: true
+                    isLaunchTarget: true,
+                    launchCardID: card.id
                 )
             }
 
@@ -927,6 +930,7 @@ struct CardFieldRow: View {
     let value: String
     let shortValue: String
     var isLaunchTarget: Bool = false
+    var launchCardID: String? = nil
     var isSecret: Bool = false
     var showSecret: Binding<Bool>? = nil
     var dataService: DataService? = nil
@@ -939,7 +943,7 @@ struct CardFieldRow: View {
                 .frame(width: 34, alignment: .leading)
 
             if isLaunchTarget {
-                Button(action: { LaunchTarget.open(value) }) {
+                Button(action: { LaunchTarget.open(value, cardID: launchCardID) }) {
                     HStack(spacing: 5) {
                         Image(systemName: LaunchTarget.isApplication(value) ? "app" : "safari")
                             .font(.system(size: 10))
@@ -993,9 +997,17 @@ struct CardFieldRow: View {
 
 // MARK: - 设置页
 
+private enum SettingsPage: String, CaseIterable, Identifiable {
+    case general = "通用"
+    case shortcuts = "快捷键"
+
+    var id: String { rawValue }
+}
+
 struct SettingsView: View {
     @EnvironmentObject var updateService: UpdateService
     @Binding var isPresented: Bool
+    @State private var selectedPage: SettingsPage = .general
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1017,95 +1029,27 @@ struct SettingsView: View {
 
             Divider()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-
-                    // ── 关于 ──
-                    SectionHeader(title: "关于")
-
-                    HStack(spacing: 14) {
-                        Image(nsImage: NSApp.applicationIconImage)
-                            .resizable()
-                            .frame(width: 48, height: 48)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("XRecord")
-                                .font(.system(size: 15, weight: .semibold))
-                            Text("版本 \(updateService.currentVersion)")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                            Text("简洁优雅的密码管理工具")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-
-                    Divider().padding(.horizontal, 20)
-
-                    // ── 更新 ──
-                    SectionHeader(title: "更新")
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("当前版本 v\(updateService.currentVersion)")
-                                    .font(.system(size: 13))
-                                Text("由 Sparkle 安全下载、安装并重新启动")
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-
-                            Button(action: { updateService.checkForUpdates() }) {
-                                Label("检查更新", systemImage: "arrow.clockwise")
-                                    .font(.system(size: 12))
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(!updateService.canCheckForUpdates)
-                        }
-
-                        Toggle(
-                            "自动检查更新",
-                            isOn: Binding(
-                                get: { updateService.automaticallyChecksForUpdates },
-                                set: { updateService.setAutomaticallyChecksForUpdates($0) }
-                            )
-                        )
-                        .font(.system(size: 12))
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-
-                    Divider().padding(.horizontal, 20)
-
-                    // ── 数据 ──
-                    SectionHeader(title: "数据")
-
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("GitHub 仓库")
-                                .font(.system(size: 13))
-                            Text("查看源码和提交反馈")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Button(action: {
-                            NSWorkspace.shared.open(URL(string: "https://github.com/juiceiie/XRecord")!)
-                        }) {
-                            Label("打开", systemImage: "arrow.up.right.square")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
+            Picker("设置页面", selection: $selectedPage) {
+                ForEach(SettingsPage.allCases) { page in
+                    Text(page.rawValue).tag(page)
                 }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            VStack(spacing: 0) {
+                switch selectedPage {
+                case .general:
+                    generalSettings
+                case .shortcuts:
+                    ShortcutSettingsView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
 
@@ -1117,7 +1061,226 @@ struct SettingsView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 480, height: 420)
+        .frame(width: 500, height: 480)
+    }
+
+    private var generalSettings: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+
+                // ── 关于 ──
+                SectionHeader(title: "关于")
+
+                HStack(spacing: 14) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .frame(width: 48, height: 48)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("XRecord")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("版本 \(updateService.currentVersion)")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                        Text("简洁优雅的密码管理工具")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                // ── 更新 ──
+                SectionHeader(title: "更新")
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("当前版本 v\(updateService.currentVersion)")
+                                .font(.system(size: 13))
+                            Text("由 Sparkle 安全下载、安装并重新启动")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+
+                        Button(action: { updateService.checkForUpdates() }) {
+                            Label("检查更新", systemImage: "arrow.clockwise")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!updateService.canCheckForUpdates)
+                    }
+
+                    Toggle(
+                        "自动检查更新",
+                        isOn: Binding(
+                            get: { updateService.automaticallyChecksForUpdates },
+                            set: { updateService.setAutomaticallyChecksForUpdates($0) }
+                        )
+                    )
+                    .font(.system(size: 12))
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                // ── 数据 ──
+                SectionHeader(title: "数据")
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("GitHub 仓库")
+                            .font(.system(size: 13))
+                        Text("查看源码和提交反馈")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button(action: {
+                        NSWorkspace.shared.open(URL(string: "https://github.com/juiceiie/XRecord")!)
+                    }) {
+                        Label("打开", systemImage: "arrow.up.right.square")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+            }
+        }
+    }
+}
+
+private struct ShortcutSettingsView: View {
+    @ObservedObject private var hotKeyService = GlobalHotKeyService.shared
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                SectionHeader(title: "全局快捷键")
+
+                HStack(spacing: 16) {
+                    Image(systemName: "magnifyingglass.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(.blue, .blue.opacity(0.18))
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("快速检索")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("在任意应用中唤起 XRecord 搜索窗口")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    ShortcutRecorderView(service: hotKeyService)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+
+                Divider().padding(.horizontal, 20)
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("恢复默认")
+                            .font(.system(size: 13))
+                        Text("默认快捷键为 ⌥X")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button("恢复") {
+                        _ = hotKeyService.restoreDefault()
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+            }
+        }
+    }
+}
+
+private struct ShortcutRecorderView: View {
+    @ObservedObject var service: GlobalHotKeyService
+    @State private var isRecording = false
+    @State private var eventMonitor: Any?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 5) {
+            Button(action: toggleRecording) {
+                Text(isRecording ? "请按快捷键…" : service.shortcut.displayText)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .frame(minWidth: 86)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.system(size: 10))
+                    .foregroundColor(.red)
+            } else if isRecording {
+                Text("按 Esc 取消")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .onDisappear {
+            if isRecording {
+                stopRecording(restoreShortcut: true)
+            }
+        }
+    }
+
+    private func toggleRecording() {
+        if isRecording {
+            stopRecording(restoreShortcut: true)
+            return
+        }
+
+        errorMessage = nil
+        isRecording = true
+        service.suspend()
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                stopRecording(restoreShortcut: true)
+                return nil
+            }
+
+            let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard !modifiers.isEmpty else {
+                errorMessage = "请至少包含一个修饰键"
+                return nil
+            }
+
+            if service.updateShortcut(from: event) {
+                stopRecording(restoreShortcut: false)
+            } else {
+                errorMessage = "快捷键已被占用，请重试"
+                service.suspend()
+            }
+            return nil
+        }
+    }
+
+    private func stopRecording(restoreShortcut: Bool) {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
+        isRecording = false
+        if restoreShortcut {
+            service.resume()
+        }
     }
 }
 

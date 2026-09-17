@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // 状态栏对象必须保持强引用，否则图标会被系统移除
     private var statusItem: NSStatusItem?
     private var quickViewMenu: NSMenu?
+    private var quickSearchController: QuickSearchWindowController?
     // 使用自定义标志追踪窗口可见性（避免调用 isVisible）
     private var isWindowShown = true
 
@@ -29,6 +30,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 设置常驻菜单栏图标
         setupStatusItem()
+
+        // 注册全局快速检索快捷键
+        quickSearchController = QuickSearchWindowController(dataService: DataService.shared)
+        GlobalHotKeyService.shared.onHotKey = { [weak self] in
+            self?.quickSearchController?.toggle()
+        }
+        GlobalHotKeyService.shared.start()
         
     }
 
@@ -72,6 +80,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 文件菜单
         let fileMenuItem = NSMenuItem()
         let fileMenu = NSMenu(title: "文件")
+        let quickSearchItem = NSMenuItem(title: "快速检索…", action: #selector(showQuickSearch), keyEquivalent: "")
+        quickSearchItem.target = self
+        fileMenu.addItem(quickSearchItem)
+        fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(NSMenuItem(title: "新建分组", action: #selector(addGroupAction), keyEquivalent: "n"))
         fileMenu.addItem(NSMenuItem(title: "添加条目", action: #selector(addCardAction), keyEquivalent: "N"))
         fileMenu.addItem(NSMenuItem.separator())
@@ -122,12 +134,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
 
         let showItem = NSMenuItem(
-            title: "显示 XRecord",
+            title: "显示主面板",
             action: #selector(showMainWindow),
             keyEquivalent: ""
         )
         showItem.target = self
         menu.addItem(showItem)
+
+        let settingsItem = NSMenuItem(
+            title: "设置…",
+            action: #selector(showSettings),
+            keyEquivalent: ""
+        )
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        let quickSearchItem = NSMenuItem(
+            title: "快速检索…",
+            action: #selector(showQuickSearch),
+            keyEquivalent: ""
+        )
+        quickSearchItem.target = self
+        menu.addItem(quickSearchItem)
 
         let quickViewItem = NSMenuItem(title: "快速查看", action: nil, keyEquivalent: "")
         let quickMenu = NSMenu(title: "快速查看")
@@ -196,6 +226,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitApplication() {
         NSApp.terminate(nil)
+    }
+
+    @objc private func showQuickSearch() {
+        quickSearchController?.show()
+    }
+
+    @objc private func showSettings() {
+        showMainWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NotificationCenter.default.post(name: .openSettings, object: nil)
+        }
     }
 
     // MARK: - 数据操作
@@ -289,4 +330,5 @@ extension Notification.Name {
     static let openAddGroup = Notification.Name("openAddGroup")
     static let openAddCard = Notification.Name("openAddCard")
     static let selectGroup = Notification.Name("selectGroup")
+    static let openSettings = Notification.Name("openSettings")
 }

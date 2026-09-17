@@ -33,9 +33,33 @@ enum LaunchTarget {
     }
 
     @discardableResult
-    static func open(_ value: String) -> Bool {
+    static func open(_ value: String, cardID: String? = nil) -> Bool {
         guard let url = resolvedURL(from: value) else { return false }
-        return NSWorkspace.shared.open(url)
+        let didOpen = NSWorkspace.shared.open(url)
+        if didOpen, let cardID {
+            RecentLaunchStore.record(cardID: cardID)
+        }
+        return didOpen
+    }
+}
+
+// MARK: - 最近打开记录
+
+enum RecentLaunchStore {
+    private static let key = "recentlyOpenedCardIDs"
+    private static let maximumStoredCount = 30
+
+    static func record(cardID: String) {
+        var cardIDs = UserDefaults.standard.stringArray(forKey: key) ?? []
+        cardIDs.removeAll { $0 == cardID }
+        cardIDs.insert(cardID, at: 0)
+        UserDefaults.standard.set(Array(cardIDs.prefix(maximumStoredCount)), forKey: key)
+    }
+
+    static func cards(in data: AppData, limit: Int) -> [Card] {
+        let cardsByID = Dictionary(uniqueKeysWithValues: data.cards.map { ($0.id, $0) })
+        let cardIDs = UserDefaults.standard.stringArray(forKey: key) ?? []
+        return cardIDs.compactMap { cardsByID[$0] }.prefix(limit).map { $0 }
     }
 }
 

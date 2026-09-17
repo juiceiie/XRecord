@@ -3,6 +3,25 @@
     <channel>
         <title>XRecord</title>
         <item>
+            <title>1.2.0</title>
+            <pubDate>Thu, 17 Sep 2026 15:26:13 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.2.0
+
+- 新增全局快速检索，默认使用 Option + X 在任意应用中唤起。
+- 支持按条目名、分类名、拼音及拼音首字母实时检索。
+- 支持键盘上下选择、回车打开网址或 macOS 应用。
+- 未输入关键词时展示最近打开的 5 个条目。
+- 设置页支持自定义全局快捷键，菜单栏新增设置和快速检索入口。
+- 优化快速检索窗口圆角、图标与外沿阴影。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.2.0/XRecord-v1.2.0.dmg" length="3400855" type="application/octet-stream" sparkle:edSignature="6qj2pgPXzSt+8l9nQEAZzI3E+Bvxao3exgZbc14Z0Tt+mGZa/JVA83766EkUM6hY7PT0A9eYaDJpJWAdF+3iDQ=="/>
+        </item>
+        <item>
             <title>1.1.2</title>
             <pubDate>Wed, 16 Sep 2026 21:21:08 +0800</pubDate>
             <link>https://github.com/juiceiie/XRecord</link>

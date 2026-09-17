@@ -1008,6 +1008,7 @@ struct SettingsView: View {
     @EnvironmentObject var updateService: UpdateService
     @Binding var isPresented: Bool
     @State private var selectedPage: SettingsPage = .general
+    @State private var preferredBrowserPath = PreferredBrowserStore.applicationPath
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1130,6 +1131,46 @@ struct SettingsView: View {
 
                 Divider().padding(.horizontal, 20)
 
+                // ── 链接打开方式 ──
+                SectionHeader(title: "链接打开方式")
+
+                HStack(spacing: 12) {
+                    Image(nsImage: preferredBrowserIcon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 34, height: 34)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(preferredBrowserName)
+                            .font(.system(size: 13, weight: .medium))
+                        Text(preferredBrowserDescription)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    if preferredBrowserPath != nil {
+                        Button(action: useSystemDefaultBrowser) {
+                            Image(systemName: "arrow.uturn.backward")
+                        }
+                        .buttonStyle(.bordered)
+                        .help("恢复系统默认浏览器")
+                    }
+
+                    Button(action: selectBrowser) {
+                        Label("选择", systemImage: "folder")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
                 // ── 数据 ──
                 SectionHeader(title: "数据")
 
@@ -1154,6 +1195,49 @@ struct SettingsView: View {
                 .padding(.vertical, 12)
             }
         }
+    }
+
+    private var preferredBrowserName: String {
+        guard let path = preferredBrowserPath else { return "系统默认浏览器" }
+        return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+    }
+
+    private var preferredBrowserDescription: String {
+        guard let path = preferredBrowserPath else { return "网址将使用 macOS 默认浏览器打开" }
+        if FileManager.default.fileExists(atPath: path) {
+            return path
+        }
+        return "浏览器不可用，将自动使用系统默认浏览器"
+    }
+
+    private var preferredBrowserIcon: NSImage {
+        guard let path = preferredBrowserPath,
+              FileManager.default.fileExists(atPath: path) else {
+            return NSImage(systemSymbolName: "safari", accessibilityDescription: "浏览器")
+                ?? NSImage()
+        }
+        return NSWorkspace.shared.icon(forFile: path)
+    }
+
+    private func selectBrowser() {
+        let panel = NSOpenPanel()
+        panel.title = "选择浏览器"
+        panel.message = "选择用于打开网址的 macOS 浏览器应用"
+        panel.prompt = "选择"
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+
+        guard panel.runModal() == .OK, let applicationURL = panel.url else { return }
+        PreferredBrowserStore.select(applicationURL: applicationURL)
+        preferredBrowserPath = applicationURL.path
+    }
+
+    private func useSystemDefaultBrowser() {
+        PreferredBrowserStore.useSystemDefault()
+        preferredBrowserPath = nil
     }
 }
 

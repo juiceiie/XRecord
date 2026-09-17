@@ -3,6 +3,22 @@
     <channel>
         <title>XRecord</title>
         <item>
+            <title>1.2.2</title>
+            <pubDate>Thu, 17 Sep 2026 16:51:03 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>9</sparkle:version>
+            <sparkle:shortVersionString>1.2.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.2.2
+
+- 设置页新增链接打开方式，可选择本机浏览器应用。
+- 指定浏览器不可用或打开失败时自动回退到系统默认浏览器。
+- 支持随时恢复使用 macOS 默认浏览器。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.2.2/XRecord-v1.2.2.dmg" length="3422182" type="application/octet-stream" sparkle:edSignature="WxbqpeMKE2BmyUhkBWoTAngkKsnCqGNEWncMgTFurH4xaVLpAm6QTbTnXUcXc8fibz75UaZHUYFiOD/6EXh/Cw=="/>
+        </item>
+        <item>
             <title>1.2.1</title>
             <pubDate>Thu, 17 Sep 2026 16:01:13 +0800</pubDate>
             <link>https://github.com/juiceiie/XRecord</link>

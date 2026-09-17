@@ -1,6 +1,35 @@
 import SwiftUI
 import AppKit
 
+// MARK: - 链接浏览器偏好
+
+enum PreferredBrowserStore {
+    static let pathKey = "preferredBrowserApplicationPath"
+
+    static var applicationPath: String? {
+        let path = UserDefaults.standard.string(forKey: pathKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return path?.isEmpty == false ? path : nil
+    }
+
+    static var availableApplicationURL: URL? {
+        guard let path = applicationPath,
+              path.lowercased().hasSuffix(".app"),
+              FileManager.default.fileExists(atPath: path) else {
+            return nil
+        }
+        return URL(fileURLWithPath: path)
+    }
+
+    static func select(applicationURL: URL) {
+        UserDefaults.standard.set(applicationURL.path, forKey: pathKey)
+    }
+
+    static func useSystemDefault() {
+        UserDefaults.standard.removeObject(forKey: pathKey)
+    }
+}
+
 // MARK: - 可打开目标（网址或 macOS 应用）
 
 enum LaunchTarget {
@@ -35,11 +64,48 @@ enum LaunchTarget {
     @discardableResult
     static func open(_ value: String, cardID: String? = nil) -> Bool {
         guard let url = resolvedURL(from: value) else { return false }
+
+        guard isWebLink(url), let browserURL = PreferredBrowserStore.availableApplicationURL else {
+            return openWithSystemDefault(url, cardID: cardID)
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open(
+            [url],
+            withApplicationAt: browserURL,
+            configuration: configuration
+        ) { _, error in
+            DispatchQueue.main.async {
+                if error == nil {
+                    recordRecentLaunch(cardID)
+                } else {
+                    _ = openWithSystemDefault(url, cardID: cardID)
+                }
+            }
+        }
+        return true
+    }
+
+    private static func isWebLink(_ url: URL) -> Bool {
+        guard !url.isFileURL else { return false }
+        let scheme = url.scheme?.lowercased()
+        return scheme == "http" || scheme == "https"
+    }
+
+    @discardableResult
+    private static func openWithSystemDefault(_ url: URL, cardID: String?) -> Bool {
         let didOpen = NSWorkspace.shared.open(url)
-        if didOpen, let cardID {
-            RecentLaunchStore.record(cardID: cardID)
+        if didOpen {
+            recordRecentLaunch(cardID)
         }
         return didOpen
+    }
+
+    private static func recordRecentLaunch(_ cardID: String?) {
+        if let cardID {
+            RecentLaunchStore.record(cardID: cardID)
+        }
     }
 }
 

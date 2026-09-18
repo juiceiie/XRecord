@@ -9,8 +9,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var quickViewMenu: NSMenu?
     private var quickSearchController: QuickSearchWindowController?
     private var credentialPanelController: CredentialPanelController?
-    // 使用自定义标志追踪窗口可见性（避免调用 isVisible）
-    private var isWindowShown = true
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // 点击 Dock 图标时，如果窗口不可见则显示

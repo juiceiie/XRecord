@@ -1,6 +1,24 @@
 import SwiftUI
 import AppKit
 
+// MARK: - 剪贴板
+
+enum Clipboard {
+    /// 复制文本，并在指定秒数后自动清除（若期间剪贴板未被其他内容替换）
+    static func copy(_ text: String, clearAfter seconds: TimeInterval = 30) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        let changeCount = pasteboard.changeCount
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            if pasteboard.changeCount == changeCount {
+                pasteboard.clearContents()
+            }
+        }
+    }
+}
+
 // MARK: - 链接浏览器偏好
 
 enum PreferredBrowserStore {
@@ -183,11 +201,11 @@ extension Color {
     }
 
     var hexString: String {
-        guard let components = NSColor(self).cgColor.components else { return "#000000" }
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components[2] * 255)
-        return String(format: "#%02X%02X%02X", r, g, b)
+        guard let rgb = NSColor(self).usingColorSpace(.sRGB) else { return "#000000" }
+        let r = Int((rgb.redComponent * 255).rounded())
+        let g = Int((rgb.greenComponent * 255).rounded())
+        let b = Int((rgb.blueComponent * 255).rounded())
+        return String(format: "#%02X%02X%02X", min(max(r, 0), 255), min(max(g, 0), 255), min(max(b, 0), 255))
     }
 
     /// 与 hexString 相同，方便调用

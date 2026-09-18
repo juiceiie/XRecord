@@ -179,6 +179,14 @@ struct CardEditView: View {
                 password = c.password
                 note = c.note
                 showsCredentialPanel = c.isCredentialPanelEnabled
+            } else {
+                currentEditingId = nil
+                name = ""
+                url = ""
+                username = ""
+                password = ""
+                note = ""
+                showsCredentialPanel = true
             }
         }
         .onDisappear { currentEditingId = nil }

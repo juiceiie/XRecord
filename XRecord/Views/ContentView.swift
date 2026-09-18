@@ -29,11 +29,15 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var showBindFile = false
     @State private var showSettings = false
+    @State private var showMigrationPrompt = false
 
     var body: some View {
         ZStack {
-            // 未绑定文件时显示欢迎界面
-            if !dataService.hasBoundFile {
+            // 文件无法解密时显示解锁界面
+            if dataService.isLocked {
+                LockedView()
+                    .frame(minWidth: 700, minHeight: 450)
+            } else if !dataService.hasBoundFile {
                 WelcomeView(showBindFile: $showBindFile)
                     .frame(minWidth: 700, minHeight: 450)
             } else {
@@ -108,6 +112,7 @@ struct ContentView: View {
                 }
                 .onAppear {
                     selectedGroupId = nil
+                    considerMigrationPrompt()
                 }
             }
         }
@@ -120,6 +125,29 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView(isPresented: $showSettings)
                 .environmentObject(updateService)
+        }
+        .sheet(isPresented: $showMigrationPrompt) {
+            MigrationPassphraseView(
+                isPresented: $showMigrationPrompt,
+                hasExisting: false,
+                onSave: { dataService.setMigrationPassphrase($0) },
+                titleOverride: "建议设置迁移口令",
+                introOverride: "主密钥保存在本机钥匙串，日常无需输入密码。设置迁移口令后，才能把数据文件复制到其他 Mac 解锁；否则数据升级后换设备将无法打开。",
+                cancelButtonTitle: "以后再说"
+            )
+        }
+    }
+
+    /// 首次绑定或老版本升级后，提醒用户设置迁移口令（只提醒一次）
+    private func considerMigrationPrompt() {
+        guard dataService.hasBoundFile, !dataService.hasMigrationPassphrase else { return }
+        let promptedKey = "xrecord_didPromptMigrationPassphrase"
+        guard !UserDefaults.standard.bool(forKey: promptedKey) else { return }
+        UserDefaults.standard.set(true, forKey: promptedKey)
+        // 稍作延迟，避免与刚关闭的绑定文件弹窗冲突
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            guard dataService.hasBoundFile, !dataService.hasMigrationPassphrase else { return }
+            showMigrationPrompt = true
         }
     }
 }
@@ -177,6 +205,53 @@ struct WelcomeView: View {
                     .foregroundColor(.secondary)
             }
             .padding(.bottom, 30)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - 数据文件加锁界面
+
+struct LockedView: View {
+    @EnvironmentObject var dataService: DataService
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: "lock.fill")
+                .font(.system(size: 70))
+                .foregroundColor(.orange)
+
+            VStack(spacing: 10) {
+                Text("数据文件已锁定")
+                    .font(.system(size: 24, weight: .bold))
+                Text("无法解密当前数据文件。为保护数据，编辑已暂时禁用，不会写回覆盖。")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+                Text(dataService.filePathDisplay)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.top, 4)
+            }
+
+            HStack(spacing: 12) {
+                Button("输入口令解锁") {
+                    dataService.retryUnlock()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("重新绑定数据文件") {
+                    dataService.unbindForReselect()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -548,25 +623,6 @@ struct CardListView: View {
         dataService.data.groups.first { $0.id == selectedGroupId }
     }
 
-    var filteredCards: [Card] {
-        let groupCards: [Card]
-        if let gid = selectedGroupId {
-            groupCards = dataService.cards(for: gid)
-        } else {
-            groupCards = dataService.data.cards
-        }
-
-        if searchText.isEmpty { return groupCards }
-
-        let q = searchText.lowercased()
-        return groupCards.filter {
-            $0.name.lowercased().contains(q) ||
-            $0.url.lowercased().contains(q) ||
-            $0.username.lowercased().contains(q) ||
-            $0.note.lowercased().contains(q)
-        }
-    }
-
     // 全部视图的卡片（按创建时间降序）
     var allCardsSorted: [Card] {
         let cards = dataService.data.cards
@@ -749,33 +805,33 @@ struct GroupCardList: View {
                         )
                         .id(card.id)
                         .draggable(card.id)
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let draggedId = items.first else { return false }
+                            return moveCard(draggedId: draggedId, before: card.id)
+                        }
                     }
                 }
                 .padding(20)
             }
-            .dropDestination(for: String.self) { items, _ in
-                guard let draggedId = items.first,
-                      let draggedIndex = groupCards.wrappedValue.firstIndex(where: { $0.id == draggedId }),
-                      let targetIndex = filteredGroupCards.firstIndex(where: { $0.id == draggedId }) else {
-                    return false
-                }
-
-                // 重新排序
-                var mutableCards = groupCards.wrappedValue
-                let movedCard = mutableCards.remove(at: draggedIndex)
-
-                // 找到目标位置（在目标卡片之后插入）
-                if targetIndex < mutableCards.count {
-                    mutableCards.insert(movedCard, at: min(targetIndex + 1, mutableCards.count))
-                } else {
-                    mutableCards.append(movedCard)
-                }
-
-                groupCards.wrappedValue = mutableCards
-                DataService.shared.save()
-                return true
-            }
         }
+    }
+
+    @discardableResult
+    private func moveCard(draggedId: String, before targetId: String) -> Bool {
+        guard draggedId != targetId else { return false }
+        var ordered = groupCards.wrappedValue
+        guard let fromIndex = ordered.firstIndex(where: { $0.id == draggedId }) else { return false }
+
+        let moved = ordered.remove(at: fromIndex)
+        guard let targetIndex = ordered.firstIndex(where: { $0.id == targetId }) else {
+            ordered.insert(moved, at: fromIndex)
+            return false
+        }
+
+        ordered.insert(moved, at: targetIndex)
+        groupCards.wrappedValue = ordered
+        DataService.shared.save()
+        return true
     }
 
 }
@@ -935,7 +991,6 @@ struct CardFieldRow: View {
     var launchCardID: String? = nil
     var isSecret: Bool = false
     var showSecret: Binding<Bool>? = nil
-    var dataService: DataService? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -991,9 +1046,7 @@ struct CardFieldRow: View {
     }
 
     private func copyToClipboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+        Clipboard.copy(text)
     }
 }
 
@@ -1008,9 +1061,11 @@ private enum SettingsPage: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @EnvironmentObject var updateService: UpdateService
+    @EnvironmentObject var dataService: DataService
     @Binding var isPresented: Bool
     @State private var selectedPage: SettingsPage = .general
     @State private var preferredBrowserPath = PreferredBrowserStore.applicationPath
+    @State private var showMigrationSheet = false
     @AppStorage(CredentialPanelPreferences.isEnabledKey)
     private var credentialPanelEnabled = true
     @State private var autoDismissSecondsText = String(CredentialPanelPreferences.autoDismissSeconds)
@@ -1068,6 +1123,13 @@ struct SettingsView: View {
             .padding(.vertical, 14)
         }
         .frame(width: 500, height: 480)
+        .sheet(isPresented: $showMigrationSheet) {
+            MigrationPassphraseView(
+                isPresented: $showMigrationSheet,
+                hasExisting: dataService.hasMigrationPassphrase,
+                onSave: { dataService.setMigrationPassphrase($0) }
+            )
+        }
     }
 
     private var generalSettings: some View {
@@ -1226,6 +1288,44 @@ struct SettingsView: View {
 
                 Divider().padding(.horizontal, 20)
 
+                // ── 数据安全 ──
+                SectionHeader(title: "数据安全")
+
+                HStack(spacing: 14) {
+                    Image(systemName: "key.horizontal.fill")
+                        .font(.system(size: 25))
+                        .foregroundColor(.blue)
+                        .frame(width: 34)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("迁移口令")
+                            .font(.system(size: 13, weight: .medium))
+                        Text(dataService.hasMigrationPassphrase
+                             ? "已设置，可将数据文件复制到其他 Mac 并用口令解锁"
+                             : "未设置，数据文件只能在本机解锁")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    if dataService.hasMigrationPassphrase {
+                        Button("清除") {
+                            dataService.clearMigrationPassphrase()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    Button(dataService.hasMigrationPassphrase ? "修改" : "设置") {
+                        showMigrationSheet = true
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
                 // ── 数据 ──
                 SectionHeader(title: "数据")
 
@@ -1293,6 +1393,97 @@ struct SettingsView: View {
     private func useSystemDefaultBrowser() {
         PreferredBrowserStore.useSystemDefault()
         preferredBrowserPath = nil
+    }
+}
+
+private struct MigrationPassphraseView: View {
+    @Binding var isPresented: Bool
+    let hasExisting: Bool
+    let onSave: (String) -> Bool
+    var titleOverride: String? = nil
+    var introOverride: String? = nil
+    var cancelButtonTitle: String = "取消"
+
+    @State private var passphrase = ""
+    @State private var confirm = ""
+    @State private var errorMessage: String?
+
+    private var title: String {
+        titleOverride ?? (hasExisting ? "修改迁移口令" : "设置迁移口令")
+    }
+
+    private var intro: String {
+        introOverride ?? "设置后，将数据文件复制到其他 Mac 时，输入此口令即可解锁。口令不会被保存，请务必牢记；遗失后新设备将无法恢复数据。"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer()
+                Button(action: { isPresented = false }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(intro)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                SecureField("迁移口令（至少 6 位）", text: $passphrase)
+                    .textFieldStyle(.roundedBorder)
+                SecureField("确认迁移口令", text: $confirm)
+                    .textFieldStyle(.roundedBorder)
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 11))
+                        .foregroundColor(.red)
+                }
+            }
+            .padding(20)
+
+            Divider()
+
+            HStack {
+                Button(cancelButtonTitle) { isPresented = false }
+                    .buttonStyle(.bordered)
+                Spacer()
+                Button("保存") { save() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(passphrase.isEmpty)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+        .frame(width: 440)
+    }
+
+    private func save() {
+        guard passphrase.count >= 6 else {
+            errorMessage = "口令至少 6 位"
+            return
+        }
+        guard passphrase == confirm else {
+            errorMessage = "两次输入不一致"
+            return
+        }
+        if onSave(passphrase) {
+            isPresented = false
+        } else {
+            errorMessage = "设置失败，请重试"
+        }
     }
 }
 

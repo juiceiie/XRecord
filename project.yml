@@ -9,11 +9,11 @@ options:
 settings:
   base:
     PRODUCT_NAME: XRecord
-    MARKETING_VERSION: "1.2.5"
-    CURRENT_PROJECT_VERSION: "12"
+    MARKETING_VERSION: "1.3.0"
+    CURRENT_PROJECT_VERSION: "13"
     SWIFT_VERSION: "5.9"
     MACOSX_DEPLOYMENT_TARGET: "13.0"
-    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_IDENTITY: "XRecord Self-Signed"
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: YES
 
@@ -44,3 +44,35 @@ targets:
       properties:
         com.apple.security.app-sandbox: false
         com.apple.security.cs.disable-library-validation: true
+
+  XRecordTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: XRecordTests
+      # 直接复用 App 的服务/模型源码，做成无宿主的逻辑测试，避免启动 App 或触碰真实钥匙串
+      - path: XRecord/Models/DataModels.swift
+      - path: XRecord/Services/EncryptionService.swift
+      - path: XRecord/Services/KeychainService.swift
+      - path: XRecord/Services/DataService.swift
+    settings:
+      base:
+        PRODUCT_NAME: XRecordTests
+        PRODUCT_BUNDLE_IDENTIFIER: com.xrecord.XRecordTests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  XRecord:
+    build:
+      targets:
+        XRecord: all
+    run:
+      config: Debug
+  XRecordTests:
+    build:
+      targets:
+        XRecordTests: all
+    test:
+      config: Debug
+      targets:
+        - XRecordTests

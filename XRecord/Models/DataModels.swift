@@ -23,7 +23,7 @@ struct Group: Codable, Identifiable, Equatable {
     static let defaultColors: [String] = [
         "#4f6ef7", "#16a34a", "#d97706", "#dc2626",
         "#7c3aed", "#0891b2", "#db2777", "#65a30d",
-        "#ea580c", "#0284c7", "#c026d3", "#65a30d"
+        "#ea580c", "#0284c7", "#c026d3", "#475569"
     ]
 
     static func == (lhs: Group, rhs: Group) -> Bool {

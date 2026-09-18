@@ -322,9 +322,7 @@ private struct CredentialPanelView: View {
     }
 
     private func copy(_ value: String, label: String, remainingCount: Int) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(value, forType: .string)
+        Clipboard.copy(value)
 
         withAnimation(.easeInOut(duration: 0.16)) {
             toastText = "\(label)已复制到剪贴板"

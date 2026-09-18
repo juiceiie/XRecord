@@ -132,6 +132,10 @@ struct GroupEditView: View {
                 currentEditingId = g.id
                 name = g.name
                 selectedColor = g.colorHex
+            } else {
+                currentEditingId = nil
+                name = ""
+                selectedColor = Group.defaultColors[0]
             }
         }
     }

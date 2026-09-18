@@ -30,11 +30,26 @@ enum PreferredBrowserStore {
     }
 }
 
-enum QuickSearchPreferences {
-    static let revealsCardInMainWindowKey = "quickSearchRevealsCardInMainWindow"
+enum CredentialPanelPreferences {
+    static let isEnabledKey = "credentialPanelEnabled"
+    static let autoDismissSecondsKey = "credentialPanelAutoDismissSeconds"
+    static let defaultAutoDismissSeconds = -1
 
-    static var revealsCardInMainWindow: Bool {
-        UserDefaults.standard.bool(forKey: revealsCardInMainWindowKey)
+    static var isEnabled: Bool {
+        guard UserDefaults.standard.object(forKey: isEnabledKey) != nil else { return true }
+        return UserDefaults.standard.bool(forKey: isEnabledKey)
+    }
+
+    /// 浮窗出现后无操作多少秒自动消失；<= 0 表示不自动消失
+    static var autoDismissSeconds: Int {
+        guard UserDefaults.standard.object(forKey: autoDismissSecondsKey) != nil else {
+            return defaultAutoDismissSeconds
+        }
+        return UserDefaults.standard.integer(forKey: autoDismissSecondsKey)
+    }
+
+    static func setAutoDismissSeconds(_ value: Int) {
+        UserDefaults.standard.set(value, forKey: autoDismissSecondsKey)
     }
 }
 
@@ -113,6 +128,9 @@ enum LaunchTarget {
     private static func recordRecentLaunch(_ cardID: String?) {
         if let cardID {
             RecentLaunchStore.record(cardID: cardID)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                NotificationCenter.default.post(name: .didOpenLaunchTarget, object: cardID)
+            }
         }
     }
 }

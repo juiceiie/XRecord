@@ -18,6 +18,9 @@ struct CardEditView: View {
     @State private var showPassword: Bool = false
     @State private var currentEditingId: String? = nil
     @State private var showGroupError: Bool = false
+    @State private var showsCredentialPanel: Bool = true
+    @AppStorage(CredentialPanelPreferences.isEnabledKey)
+    private var credentialPanelEnabled = true
 
     var isEditing: Bool { editingCard != nil }
     
@@ -102,6 +105,29 @@ struct CardEditView: View {
                         .frame(maxWidth: .infinity)
                     }
 
+                    if credentialPanelEnabled {
+                        HStack(spacing: 12) {
+                            Image(systemName: "rectangle.on.rectangle")
+                                .font(.system(size: 18))
+                                .foregroundColor(.blue)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("打开后显示凭据浮窗")
+                                    .font(.system(size: 12, weight: .medium))
+                                Text("需同时开启设置中的全局开关")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $showsCredentialPanel)
+                                .labelsHidden()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.secondary.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                    }
+
                     // 备注
                     VStack(alignment: .leading, spacing: 6) {
                         Text("备注")
@@ -152,6 +178,7 @@ struct CardEditView: View {
                 username = c.username
                 password = c.password
                 note = c.note
+                showsCredentialPanel = c.isCredentialPanelEnabled
             }
         }
         .onDisappear { currentEditingId = nil }
@@ -174,6 +201,7 @@ struct CardEditView: View {
             c.username = username.trimmingCharacters(in: .whitespaces)
             c.password = password
             c.note = note.trimmingCharacters(in: .whitespaces)
+            c.showsCredentialPanel = showsCredentialPanel
             dataService.updateCard(c)
         } else {
             let newCard = Card(
@@ -182,7 +210,8 @@ struct CardEditView: View {
                 url: url.trimmingCharacters(in: .whitespaces),
                 username: username.trimmingCharacters(in: .whitespaces),
                 password: password,
-                note: note.trimmingCharacters(in: .whitespaces)
+                note: note.trimmingCharacters(in: .whitespaces),
+                showsCredentialPanel: showsCredentialPanel
             )
             dataService.addCard(newCard)
         }

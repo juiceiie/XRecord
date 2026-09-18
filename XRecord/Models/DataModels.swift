@@ -39,7 +39,12 @@ struct Card: Codable, Identifiable, Equatable {
     var username: String
     var password: String
     var note: String
+    var showsCredentialPanel: Bool? = nil
     var createdAt: Date = Date()
+
+    var isCredentialPanelEnabled: Bool {
+        showsCredentialPanel ?? true
+    }
 
     static func == (lhs: Card, rhs: Card) -> Bool {
         lhs.id == rhs.id

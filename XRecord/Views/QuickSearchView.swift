@@ -140,11 +140,9 @@ private final class RoundedShadowView: NSView {
 final class QuickSearchWindowController: NSObject, NSWindowDelegate {
     private let panel: QuickSearchPanel
     private let dataService: DataService
-    private let onRevealCard: (Card) -> Void
 
-    init(dataService: DataService, onRevealCard: @escaping (Card) -> Void = { _ in }) {
+    init(dataService: DataService) {
         self.dataService = dataService
-        self.onRevealCard = onRevealCard
         panel = QuickSearchPanel(
             contentRect: NSRect(x: 0, y: 0, width: 720, height: 510),
             styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
@@ -254,9 +252,6 @@ final class QuickSearchWindowController: NSObject, NSWindowDelegate {
         }
         hide()
         _ = LaunchTarget.open(card.url, cardID: card.id)
-        if QuickSearchPreferences.revealsCardInMainWindow {
-            onRevealCard(card)
-        }
     }
 
     private func positionOnActiveScreen() {

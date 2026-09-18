@@ -8,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var quickViewMenu: NSMenu?
     private var quickSearchController: QuickSearchWindowController?
+    private var credentialPanelController: CredentialPanelController?
     // 使用自定义标志追踪窗口可见性（避免调用 isVisible）
     private var isWindowShown = true
 
@@ -32,16 +33,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
 
         // 注册全局快速检索快捷键
-        quickSearchController = QuickSearchWindowController(
-            dataService: DataService.shared,
-            onRevealCard: { [weak self] card in
-                self?.revealQuickSearchCard(card)
-            }
-        )
+        quickSearchController = QuickSearchWindowController(dataService: DataService.shared)
         GlobalHotKeyService.shared.onHotKey = { [weak self] in
             self?.quickSearchController?.toggle()
         }
         GlobalHotKeyService.shared.start()
+
+        credentialPanelController = CredentialPanelController()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(showCredentialPanel(_:)),
+            name: .didOpenLaunchTarget,
+            object: nil
+        )
         
     }
 
@@ -50,6 +54,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        NotificationCenter.default.removeObserver(self)
+        credentialPanelController?.hide()
         quickSearchController?.hide()
         GlobalHotKeyService.shared.onHotKey = nil
         GlobalHotKeyService.shared.suspend()
@@ -247,18 +253,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         quickSearchController?.show()
     }
 
-    private func revealQuickSearchCard(_ card: Card) {
-        showMainWindow()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            NotificationCenter.default.post(name: .revealCard, object: card.id)
-        }
-    }
-
     @objc private func showSettings() {
         showMainWindow()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             NotificationCenter.default.post(name: .openSettings, object: nil)
         }
+    }
+
+    @objc private func showCredentialPanel(_ notification: Notification) {
+        guard CredentialPanelPreferences.isEnabled,
+              let cardID = notification.object as? String,
+              let card = DataService.shared.data.cards.first(where: { $0.id == cardID }),
+              card.isCredentialPanelEnabled else {
+            return
+        }
+        let group = DataService.shared.data.groups.first(where: { $0.id == card.groupId })
+        credentialPanelController?.show(
+            card: card,
+            groupName: group?.name ?? "未分类",
+            groupColorHex: group?.colorHex ?? "#4f6ef7"
+        )
     }
 
     // MARK: - 数据操作
@@ -353,5 +367,5 @@ extension Notification.Name {
     static let openAddCard = Notification.Name("openAddCard")
     static let selectGroup = Notification.Name("selectGroup")
     static let openSettings = Notification.Name("openSettings")
-    static let revealCard = Notification.Name("revealCard")
+    static let didOpenLaunchTarget = Notification.Name("didOpenLaunchTarget")
 }

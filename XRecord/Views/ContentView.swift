@@ -1100,42 +1100,6 @@ struct SettingsView: View {
 
                 Divider().padding(.horizontal, 20)
 
-                // ── 更新 ──
-                SectionHeader(title: "更新")
-
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("当前版本 v\(updateService.currentVersion)")
-                                .font(.system(size: 13))
-                            Text("由 Sparkle 安全下载、安装并重新启动")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-
-                        Button(action: { updateService.checkForUpdates() }) {
-                            Label("检查更新", systemImage: "arrow.clockwise")
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!updateService.canCheckForUpdates)
-                    }
-
-                    Toggle(
-                        "自动检查更新",
-                        isOn: Binding(
-                            get: { updateService.automaticallyChecksForUpdates },
-                            set: { updateService.setAutomaticallyChecksForUpdates($0) }
-                        )
-                    )
-                    .font(.system(size: 12))
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
-
-                Divider().padding(.horizontal, 20)
-
                 // ── 凭据浮窗 ──
                 SectionHeader(title: "凭据浮窗")
 
@@ -1220,6 +1184,42 @@ struct SettingsView: View {
                             .font(.system(size: 12))
                     }
                     .buttonStyle(.bordered)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                // ── 更新 ──
+                SectionHeader(title: "更新")
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("当前版本 v\(updateService.currentVersion)")
+                                .font(.system(size: 13))
+                            Text("由 Sparkle 安全下载、安装并重新启动")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+
+                        Button(action: { updateService.checkForUpdates() }) {
+                            Label("检查更新", systemImage: "arrow.clockwise")
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!updateService.canCheckForUpdates)
+                    }
+
+                    Toggle(
+                        "自动检查更新",
+                        isOn: Binding(
+                            get: { updateService.automaticallyChecksForUpdates },
+                            set: { updateService.setAutomaticallyChecksForUpdates($0) }
+                        )
+                    )
+                    .font(.system(size: 12))
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)

@@ -3,6 +3,22 @@
     <channel>
         <title>XRecord</title>
         <item>
+            <title>1.2.3</title>
+            <pubDate>Fri, 18 Sep 2026 10:38:11 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>1.2.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.2.3
+
+- 快速检索新增“同步显示主面板条目”设置。
+- 开启后可在打开网址或 App 的同时定位并高亮主面板中的对应条目。
+- 默认关闭该选项，保留原有快速检索行为。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.2.3/XRecord-v1.2.3.dmg" length="3443094" type="application/octet-stream" sparkle:edSignature="3VYsD6LjvEVZ+PsaVwhuufYLYauG3hpPVjjwt8EVpm9RC9lo7J2xWmawbN8IbYZJq2Yb7ohozpsvJ/gHy6vDBQ=="/>
+        </item>
+        <item>
             <title>1.2.2</title>
             <pubDate>Thu, 17 Sep 2026 16:51:03 +0800</pubDate>
             <link>https://github.com/juiceiie/XRecord</link>

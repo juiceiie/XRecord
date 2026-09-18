@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var searchText = ""
     @State private var showBindFile = false
     @State private var showSettings = false
+    @State private var revealedCardId: String?
 
     var body: some View {
         ZStack {
@@ -55,6 +56,7 @@ struct ContentView: View {
                         selectedGroupId: $selectedGroupId,
                         editingCard: $editingCard,
                         searchText: $searchText,
+                        revealedCardId: $revealedCardId,
                         onPrepareAddCard: { groupId in
                             addCardRequest = AddCardRequest(groupId: groupId)
                         }
@@ -75,6 +77,19 @@ struct ContentView: View {
                     guard let groupId = notification.object as? String,
                           dataService.data.groups.contains(where: { $0.id == groupId }) else { return }
                     selectedGroupId = groupId
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .revealCard)) { notification in
+                    guard let cardId = notification.object as? String,
+                          let card = dataService.data.cards.first(where: { $0.id == cardId }),
+                          dataService.data.groups.contains(where: { $0.id == card.groupId }) else { return }
+                    searchText = ""
+                    selectedGroupId = card.groupId
+                    revealedCardId = card.id
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        if revealedCardId == card.id {
+                            revealedCardId = nil
+                        }
+                    }
                 }
                 .sheet(isPresented: $showAddGroup) {
                     GroupEditView(
@@ -542,6 +557,7 @@ struct CardListView: View {
     @Binding var selectedGroupId: String?
     @Binding var editingCard: Card?
     @Binding var searchText: String
+    @Binding var revealedCardId: String?
     var onPrepareAddCard: ((String) -> Void)? = nil
 
     var selectedGroup: Group? {
@@ -642,6 +658,7 @@ struct CardListView: View {
                     groupId: gid,
                     cards: $dataService.data.cards,
                     searchText: searchText,
+                    revealedCardId: $revealedCardId,
                     onEdit: { card in
                         editingCard = card
                     },
@@ -695,6 +712,7 @@ struct GroupCardList: View {
     let groupId: String
     @Binding var cards: [Card]
     let searchText: String
+    @Binding var revealedCardId: String?
     let onEdit: (Card) -> Void
     let onDelete: (Card) -> Void
 
@@ -736,21 +754,31 @@ struct GroupCardList: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ScrollView {
-                LazyVGrid(columns: [
-                    GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 14)
-                ], spacing: 14) {
-                    ForEach(filteredGroupCards) { card in
-                        CardItemView(
-                            card: card,
-                            dataService: DataService.shared,
-                            onEdit: { onEdit(card) },
-                            onDelete: { onDelete(card) }
-                        )
-                        .draggable(card.id)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVGrid(columns: [
+                        GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 14)
+                    ], spacing: 14) {
+                        ForEach(filteredGroupCards) { card in
+                            CardItemView(
+                                card: card,
+                                dataService: DataService.shared,
+                                onEdit: { onEdit(card) },
+                                onDelete: { onDelete(card) },
+                                isRevealed: card.id == revealedCardId
+                            )
+                            .id(card.id)
+                            .draggable(card.id)
+                        }
                     }
+                    .padding(20)
                 }
-                .padding(20)
+                .onAppear {
+                    scrollToRevealedCard(using: proxy)
+                }
+                .onChange(of: revealedCardId) { _ in
+                    scrollToRevealedCard(using: proxy)
+                }
             }
             .dropDestination(for: String.self) { items, _ in
                 guard let draggedId = items.first,
@@ -776,6 +804,16 @@ struct GroupCardList: View {
             }
         }
     }
+
+    private func scrollToRevealedCard(using proxy: ScrollViewProxy) {
+        guard let cardId = revealedCardId,
+              filteredGroupCards.contains(where: { $0.id == cardId }) else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(cardId, anchor: .center)
+            }
+        }
+    }
 }
 
 // MARK: - 单个卡片
@@ -786,6 +824,7 @@ struct CardItemView: View {
     let onEdit: () -> Void
     let onDelete: () -> Void
     var showGroupName: Bool = false
+    var isRevealed: Bool = false
 
     @State private var showPassword = false
     @State private var isHovered = false
@@ -913,8 +952,12 @@ struct CardItemView: View {
         .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 2)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(groupColor.opacity(0.2), lineWidth: 1)
+                .stroke(
+                    isRevealed ? groupColor.opacity(0.85) : groupColor.opacity(0.2),
+                    lineWidth: isRevealed ? 2 : 1
+                )
         )
+        .animation(.easeInOut(duration: 0.18), value: isRevealed)
         .onHover { hovering in isHovered = hovering }
         .alert("删除条目", isPresented: $showDeleteConfirm) {
             Button("取消", role: .cancel) {}
@@ -1243,6 +1286,8 @@ struct SettingsView: View {
 
 private struct ShortcutSettingsView: View {
     @ObservedObject private var hotKeyService = GlobalHotKeyService.shared
+    @AppStorage(QuickSearchPreferences.revealsCardInMainWindowKey)
+    private var revealsCardInMainWindow = false
 
     var body: some View {
         ScrollView {
@@ -1287,6 +1332,30 @@ private struct ShortcutSettingsView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                HStack(spacing: 16) {
+                    Image(systemName: "macwindow.on.rectangle")
+                        .font(.system(size: 26))
+                        .foregroundColor(.blue)
+                        .frame(width: 34)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("同步显示主面板条目")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("打开网址或 App 时，同时定位对应条目")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: $revealsCardInMainWindow)
+                        .labelsHidden()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
             }
         }
     }

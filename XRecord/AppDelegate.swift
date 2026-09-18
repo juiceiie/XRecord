@@ -32,7 +32,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupStatusItem()
 
         // 注册全局快速检索快捷键
-        quickSearchController = QuickSearchWindowController(dataService: DataService.shared)
+        quickSearchController = QuickSearchWindowController(
+            dataService: DataService.shared,
+            onRevealCard: { [weak self] card in
+                self?.revealQuickSearchCard(card)
+            }
+        )
         GlobalHotKeyService.shared.onHotKey = { [weak self] in
             self?.quickSearchController?.toggle()
         }
@@ -242,6 +247,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         quickSearchController?.show()
     }
 
+    private func revealQuickSearchCard(_ card: Card) {
+        showMainWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            NotificationCenter.default.post(name: .revealCard, object: card.id)
+        }
+    }
+
     @objc private func showSettings() {
         showMainWindow()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -341,4 +353,5 @@ extension Notification.Name {
     static let openAddCard = Notification.Name("openAddCard")
     static let selectGroup = Notification.Name("selectGroup")
     static let openSettings = Notification.Name("openSettings")
+    static let revealCard = Notification.Name("revealCard")
 }

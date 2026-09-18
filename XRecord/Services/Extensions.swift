@@ -30,6 +30,14 @@ enum PreferredBrowserStore {
     }
 }
 
+enum QuickSearchPreferences {
+    static let revealsCardInMainWindowKey = "quickSearchRevealsCardInMainWindow"
+
+    static var revealsCardInMainWindow: Bool {
+        UserDefaults.standard.bool(forKey: revealsCardInMainWindowKey)
+    }
+}
+
 // MARK: - 可打开目标（网址或 macOS 应用）
 
 enum LaunchTarget {

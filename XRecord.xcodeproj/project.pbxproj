@@ -10,11 +10,11 @@
 		06CEDBF42891705697D7FD86 /* GlobalHotKeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63F9DF580EA2099C4605DBFC /* GlobalHotKeyService.swift */; };
 		1D43B672B5D361D4E6DCF1B6 /* EncryptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CABBEDAF8A167BDDCCD98805 /* EncryptionService.swift */; };
 		3FD3EF1F8A51989DA39725FD /* UpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E3EE2AA2948E04D241FA59B /* UpdateService.swift */; };
+		4ED5EE890EDA1FDE20BD03CC /* CredentialPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A86EF8D6A28C369106EF79 /* CredentialPanel.swift */; };
 		5041610A2AECE0CDBBA4B3E7 /* DataModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECD57921AD8DB1EA7FD84A6E /* DataModels.swift */; };
 		5F36E8A1B8B97FF59E713F67 /* DataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0F686414B39DB12007B7F6 /* DataService.swift */; };
 		62F88386CBF1EF8472CCA0D9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = ABA7383F2B27FEE58541FE07 /* Assets.xcassets */; };
 		69649055B8EBE50A4C0F717C /* QuickSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B6F02A5C7A6D6800736898 /* QuickSearchView.swift */; };
-		A13F2C4D5E6F708192A3B4C5 /* CredentialPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13F2C4D5E6F708192A3B4C5 /* CredentialPanel.swift */; };
 		96C596A6EFF10796C335FDF8 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F62906380102F1C05EDAF28 /* ContentView.swift */; };
 		96DED1057394CEBBE58FCFF0 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23DA3C8ADC4BAEDB6A6DFB78 /* Extensions.swift */; };
 		98AFDEDB56B2398A2959E05B /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = E0C85DB9040796867951B3EB /* Sparkle */; };
@@ -38,8 +38,8 @@
 		71D9CD2F75E81E9F403211BE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		8CCC8A9219EC98256B85C605 /* CardEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardEditView.swift; sourceTree = "<group>"; };
 		9E3EE2AA2948E04D241FA59B /* UpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateService.swift; sourceTree = "<group>"; };
+		A5A86EF8D6A28C369106EF79 /* CredentialPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialPanel.swift; sourceTree = "<group>"; };
 		ABA7383F2B27FEE58541FE07 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B13F2C4D5E6F708192A3B4C5 /* CredentialPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialPanel.swift; sourceTree = "<group>"; };
 		BC5ACAC2150CEF8B0F6B42FD /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		C1B6F02A5C7A6D6800736898 /* QuickSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickSearchView.swift; sourceTree = "<group>"; };
 		CABBEDAF8A167BDDCCD98805 /* EncryptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptionService.swift; sourceTree = "<group>"; };
@@ -72,7 +72,7 @@
 			children = (
 				8CCC8A9219EC98256B85C605 /* CardEditView.swift */,
 				5F62906380102F1C05EDAF28 /* ContentView.swift */,
-				B13F2C4D5E6F708192A3B4C5 /* CredentialPanel.swift */,
+				A5A86EF8D6A28C369106EF79 /* CredentialPanel.swift */,
 				43F73C32BFBFEF8597B2551B /* GroupEditView.swift */,
 				C1B6F02A5C7A6D6800736898 /* QuickSearchView.swift */,
 			);
@@ -220,7 +220,7 @@
 				A2579CB0B865CE88D92C0BC8 /* AppDelegate.swift in Sources */,
 				BF2F088B45C39BE6E595B1A9 /* CardEditView.swift in Sources */,
 				96C596A6EFF10796C335FDF8 /* ContentView.swift in Sources */,
-				A13F2C4D5E6F708192A3B4C5 /* CredentialPanel.swift in Sources */,
+				4ED5EE890EDA1FDE20BD03CC /* CredentialPanel.swift in Sources */,
 				5041610A2AECE0CDBBA4B3E7 /* DataModels.swift in Sources */,
 				5F36E8A1B8B97FF59E713F67 /* DataService.swift in Sources */,
 				1D43B672B5D361D4E6DCF1B6 /* EncryptionService.swift in Sources */,
@@ -273,7 +273,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -293,7 +293,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.2.3;
+				MARKETING_VERSION = 1.2.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -341,7 +341,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 10;
+				CURRENT_PROJECT_VERSION = 11;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -355,7 +355,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 1.2.3;
+				MARKETING_VERSION = 1.2.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = XRecord;

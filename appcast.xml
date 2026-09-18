@@ -3,6 +3,24 @@
     <channel>
         <title>XRecord</title>
         <item>
+            <title>1.2.4</title>
+            <pubDate>Fri, 18 Sep 2026 21:27:16 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>11</sparkle:version>
+            <sparkle:shortVersionString>1.2.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.2.4
+
+- 新增凭据浮窗：打开网址或 macOS 应用后自动在屏幕右上角显示，一键复制账号/密码。
+- 条目编辑新增“打开后显示凭据浮窗”开关，新建条目默认开启。
+- 设置页新增凭据浮窗总开关；总开关关闭时条目内的浮窗开关自动隐藏。
+- 设置页新增“浮窗未使用 N 秒后自动消失”，默认 -1 表示不自动消失，复制凭据会重新计时。
+- 快速检索不再同步高亮主面板条目，改由凭据浮窗承担。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.2.4/XRecord-v1.2.4.dmg" length="3461881" type="application/octet-stream" sparkle:edSignature="VPTYasAH/mlmURsOD6wJyteooD8/uCZtG/iMQC4peH/LrGfYeHxoriOiW2IteN9To2xJbmGixQ9d94payFqsDA=="/>
+        </item>
+        <item>
             <title>1.2.3</title>
             <pubDate>Fri, 18 Sep 2026 10:38:11 +0800</pubDate>
             <link>https://github.com/juiceiie/XRecord</link>

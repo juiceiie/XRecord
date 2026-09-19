@@ -29,6 +29,9 @@ class DataService: ObservableObject {
     private let defaults: UserDefaults
     @Published private(set) var currentFileURL: URL?
 
+    /// 旧格式首次写成新格式前保留原始字节，确保迁移始终可回退。
+    private var pendingMigrationBackup: Data?
+
     /// 默认路径：~/Desktop/xrecord/record.txt
     private var defaultFileURL: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -115,6 +118,7 @@ class DataService: ObservableObject {
         let previousBound = hasBoundFile
         let previousLocked = isLocked
         let previousData = data
+        let previousMigrationBackup = pendingMigrationBackup
 
         savePath(url)
         hasBoundFile = true
@@ -125,6 +129,7 @@ class DataService: ObservableObject {
             hasBoundFile = previousBound
             isLocked = previousLocked
             data = previousData
+            pendingMigrationBackup = previousMigrationBackup
         }
     }
 
@@ -141,16 +146,15 @@ class DataService: ObservableObject {
 
     /// 在指定位置创建新的数据文件（供文件面板与测试复用）
     func createFile(at url: URL) {
+        let initialData = AppData()
+        guard saveData(initialData, to: url) else { return }
+
         savePath(url)
-        try? FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        data = AppData()
+        data = initialData
+        pendingMigrationBackup = nil
         isLocked = false
         hasBoundFile = true
         isLoaded = true
-        saveData(data, to: url)
     }
 
     // MARK: - 加载（解密）
@@ -179,6 +183,7 @@ class DataService: ObservableObject {
 
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             data = AppData()
+            pendingMigrationBackup = nil
             isLocked = false
             isLoaded = true
             return true
@@ -188,13 +193,15 @@ class DataService: ObservableObject {
             let blob = try Data(contentsOf: fileURL)
             if blob.isEmpty {
                 data = AppData()
+                pendingMigrationBackup = nil
                 isLocked = false
                 isLoaded = true
                 return true
             }
 
             if let decoded = decode(blob) {
-                data = decoded
+                data = decoded.data
+                pendingMigrationBackup = decoded.needsMigrationBackup ? blob : nil
                 isLocked = false
                 isLoaded = true
                 return true
@@ -214,11 +221,16 @@ class DataService: ObservableObject {
         }
     }
 
+    private struct DecodedFile {
+        let data: AppData
+        let needsMigrationBackup: Bool
+    }
+
     /// 将磁盘内容解码为 AppData；失败返回 nil（不清空数据）
-    private func decode(_ blob: Data) -> AppData? {
+    private func decode(_ blob: Data) -> DecodedFile? {
         // 1) 旧版本的明文 JSON
         if let plain = decodePlainJSON(blob) {
-            return plain
+            return DecodedFile(data: plain, needsMigrationBackup: true)
         }
 
         guard let parsed = encryption.parse(blob) else { return nil }
@@ -228,7 +240,7 @@ class DataService: ObservableObject {
             if let key = encryption.cachedMasterKey(),
                let decrypted = encryption.decryptPayload(parsed, masterKey: key),
                let appData = decodePlainJSON(decrypted) {
-                return appData
+                return DecodedFile(data: appData, needsMigrationBackup: false)
             }
 
             // 2) 用迁移口令解出主密钥
@@ -236,9 +248,15 @@ class DataService: ObservableObject {
                let key = promptForMasterKey(wrap: wrap),
                let decrypted = encryption.decryptPayload(parsed, masterKey: key),
                let appData = decodePlainJSON(decrypted) {
+                if !encryption.storeMasterKey(key) {
+                    presentMessage(
+                        "钥匙串保存失败",
+                        "数据已成功解锁，但主密钥未能保存到 macOS 钥匙串。下次启动时需要再次输入迁移口令。"
+                    )
+                }
                 encryption.setStoredKeyWrap(wrap)
                 hasMigrationPassphrase = true
-                return appData
+                return DecodedFile(data: appData, needsMigrationBackup: false)
             }
             return nil
         }
@@ -248,10 +266,7 @@ class DataService: ObservableObject {
               let appData = decodePlainJSON(decrypted) else {
             return nil
         }
-        _ = encryption.loadOrCreateMasterKey()
-        // 显式写回解码结果；此刻 self.data 尚未更新，不能调用 save()
-        saveData(appData, to: fileURL)
-        return appData
+        return DecodedFile(data: appData, needsMigrationBackup: true)
     }
 
     private func decodePlainJSON(_ data: Data) -> AppData? {
@@ -265,27 +280,39 @@ class DataService: ObservableObject {
     }
 
     // MARK: - 保存（加密）
-    func save() {
-        guard hasBoundFile, currentFileURL != nil, !isLocked else { return }
-        saveData(data, to: fileURL)
+    @discardableResult
+    func save() -> Bool {
+        guard hasBoundFile, currentFileURL != nil, !isLocked else { return false }
+        guard createMigrationBackupIfNeeded(for: fileURL) else { return false }
+        guard saveData(data, to: fileURL) else { return false }
+        pendingMigrationBackup = nil
+        return true
     }
 
     /// 保存数据到指定路径（加密）
-    private func saveData(_ appData: AppData, to url: URL) {
+    @discardableResult
+    private func saveData(_ appData: AppData, to url: URL) -> Bool {
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let jsonData = try encoder.encode(appData)
 
-            let masterKey = encryption.loadOrCreateMasterKey()
+            guard let masterKey = encryption.loadOrCreateMasterKey() else {
+                presentMessage(
+                    "无法保存数据",
+                    "主密钥未能写入 macOS 钥匙串。为避免生成无法恢复的数据文件，本次保存已取消。"
+                )
+                return false
+            }
             guard let encrypted = encryption.encrypt(
                 jsonData,
                 masterKey: masterKey,
                 wrap: encryption.storedKeyWrap
             ) else {
                 print("加密失败")
-                return
+                presentMessage("无法保存数据", "数据加密失败，原文件未被覆盖。")
+                return false
             }
 
             let dir = url.deletingLastPathComponent()
@@ -294,8 +321,36 @@ class DataService: ObservableObject {
             }
 
             try encrypted.write(to: url, options: .atomic)
+            return true
         } catch {
             print("保存失败: \(error)")
+            presentMessage("无法保存数据", "写入数据文件失败，原文件未被覆盖：\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func createMigrationBackupIfNeeded(for url: URL) -> Bool {
+        guard let originalData = pendingMigrationBackup else { return true }
+
+        let preferredURL = url.appendingPathExtension("xrecord-v1-backup")
+        var backupURL = preferredURL
+
+        if FileManager.default.fileExists(atPath: preferredURL.path) {
+            if let existing = try? Data(contentsOf: preferredURL), existing == originalData {
+                return true
+            }
+            backupURL = url.appendingPathExtension("xrecord-v1-backup-\(UUID().uuidString)")
+        }
+
+        do {
+            try originalData.write(to: backupURL, options: .withoutOverwriting)
+            return true
+        } catch {
+            presentMessage(
+                "旧数据备份失败",
+                "升级加密格式前无法创建备份，已取消写入，原文件保持不变：\(error.localizedDescription)"
+            )
+            return false
         }
     }
 
@@ -306,27 +361,48 @@ class DataService: ObservableObject {
         let trimmed = passphrase.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
-        let masterKey = encryption.loadOrCreateMasterKey()
+        guard let masterKey = encryption.loadOrCreateMasterKey() else {
+            presentMessage("无法设置迁移口令", "主密钥未能写入 macOS 钥匙串。")
+            return false
+        }
         guard let wrap = encryption.makeKeyWrap(masterKey: masterKey, passphrase: trimmed) else {
             return false
         }
+        let previousWrap = encryption.storedKeyWrap
+        let previousState = hasMigrationPassphrase
         encryption.setStoredKeyWrap(wrap)
         hasMigrationPassphrase = true
-        save()
+        guard save() else {
+            encryption.setStoredKeyWrap(previousWrap)
+            hasMigrationPassphrase = previousState
+            return false
+        }
         return true
     }
 
     func clearMigrationPassphrase() {
+        let previousWrap = encryption.storedKeyWrap
         encryption.setStoredKeyWrap(nil)
         hasMigrationPassphrase = false
-        save()
+        if !save() {
+            encryption.setStoredKeyWrap(previousWrap)
+            hasMigrationPassphrase = previousWrap != nil
+        }
     }
 
     // MARK: - 重置
     func resetAll() {
         let target = currentFileURL ?? defaultFileURL
-        try? FileManager.default.removeItem(at: target)
+        do {
+            if FileManager.default.fileExists(atPath: target.path) {
+                try FileManager.default.removeItem(at: target)
+            }
+        } catch {
+            presentMessage("无法重置数据", "数据文件删除失败，未进行重置：\(error.localizedDescription)")
+            return
+        }
         data = AppData()
+        pendingMigrationBackup = nil
         savePath(nil)
         hasBoundFile = false
         isLocked = false
@@ -407,7 +483,6 @@ class DataService: ObservableObject {
             presentMessage("迁移口令不正确", "无法解锁数据文件，请重试。")
             return nil
         }
-        encryption.storeMasterKey(key)
         return key
     }
 

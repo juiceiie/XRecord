@@ -38,11 +38,4 @@ final class UpdateService: NSObject, ObservableObject, SPUUpdaterDelegate {
         automaticallyChecksForUpdates = enabled
     }
 
-    func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        // Sparkle normally sends a standard quit event. Explicitly terminating here
-        // also covers menu-bar-only and manually-created NSApplication lifecycles.
-        DispatchQueue.main.async {
-            NSApp.terminate(nil)
-        }
-    }
 }

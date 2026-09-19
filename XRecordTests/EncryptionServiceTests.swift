@@ -2,22 +2,22 @@ import XCTest
 
 final class EncryptionServiceTests: XCTestCaseBase {
 
-    func testLoadOrCreateMasterKeyIsStableAnd32Bytes() {
+    func testLoadOrCreateMasterKeyIsStableAnd32Bytes() throws {
         let store = InMemoryMasterKeyStore()
         let encryption = makeEncryption(store: store)
 
-        let first = encryption.loadOrCreateMasterKey()
+        let first = try XCTUnwrap(encryption.loadOrCreateMasterKey())
         XCTAssertEqual(first.count, 32)
         XCTAssertEqual(encryption.cachedMasterKey(), first)
 
-        let second = encryption.loadOrCreateMasterKey()
+        let second = try XCTUnwrap(encryption.loadOrCreateMasterKey())
         XCTAssertEqual(first, second)
         XCTAssertEqual(store.key, first)
     }
 
     func testEncryptDecryptRoundTrip() throws {
         let encryption = makeEncryption()
-        let key = encryption.loadOrCreateMasterKey()
+        let key = try XCTUnwrap(encryption.loadOrCreateMasterKey())
         let plaintext = Data("机密数据 secret payload".utf8)
 
         let blob = try XCTUnwrap(encryption.encrypt(plaintext, masterKey: key, wrap: nil))
@@ -35,7 +35,7 @@ final class EncryptionServiceTests: XCTestCaseBase {
 
     func testEncryptWithMigrationWrapRoundTrip() throws {
         let encryption = makeEncryption()
-        let key = encryption.loadOrCreateMasterKey()
+        let key = try XCTUnwrap(encryption.loadOrCreateMasterKey())
         let wrap = try XCTUnwrap(encryption.makeKeyWrap(masterKey: key, passphrase: "passphrase123"))
         let plaintext = Data("cross-device".utf8)
 
@@ -51,7 +51,7 @@ final class EncryptionServiceTests: XCTestCaseBase {
 
     func testWrongPassphraseFailsToUnwrap() throws {
         let encryption = makeEncryption()
-        let key = encryption.loadOrCreateMasterKey()
+        let key = try XCTUnwrap(encryption.loadOrCreateMasterKey())
         let wrap = try XCTUnwrap(encryption.makeKeyWrap(masterKey: key, passphrase: "correct-pass"))
 
         XCTAssertNil(encryption.unwrapMasterKey(from: wrap, passphrase: "wrong-pass"))
@@ -74,12 +74,22 @@ final class EncryptionServiceTests: XCTestCaseBase {
         let encryption = makeEncryption()
         let appData = AppData(groups: [Group(name: "旧分组", colorHex: "#4f6ef7")], cards: [], appTitle: "旧标题")
         let salt = TestCipher.randomSalt(count: 32)
-        let legacyBlob = TestCipher.legacyEncrypt(TestCipher.json(appData), salt: salt)
+        let originalJSON = TestCipher.json(appData)
+        let legacyBlob = TestCipher.legacyEncrypt(originalJSON, salt: salt)
 
         let parsed = try XCTUnwrap(encryption.parse(legacyBlob))
         XCTAssertFalse(parsed.isModern)
 
         let decrypted = try XCTUnwrap(encryption.legacyDecrypt(parsed))
-        XCTAssertEqual(decrypted, TestCipher.json(appData))
+        XCTAssertEqual(decrypted, originalJSON)
+    }
+
+    func testMasterKeyCreationFailsWhenKeychainStoreFails() {
+        let store = InMemoryMasterKeyStore()
+        store.shouldFailStore = true
+        let encryption = makeEncryption(store: store)
+
+        XCTAssertNil(encryption.loadOrCreateMasterKey())
+        XCTAssertNil(encryption.cachedMasterKey())
     }
 }

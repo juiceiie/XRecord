@@ -53,10 +53,10 @@ final class EncryptionService {
 
     /// 读取主密钥，不存在则随机生成并写入钥匙串
     @discardableResult
-    func loadOrCreateMasterKey() -> Data {
+    func loadOrCreateMasterKey() -> Data? {
         if let key = cachedMasterKey() { return key }
         let key = Self.randomData(count: keyLength)
-        keyStore.storeMasterKey(key)
+        guard keyStore.storeMasterKey(key) else { return nil }
         return key
     }
 

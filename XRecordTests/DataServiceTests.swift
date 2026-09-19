@@ -37,7 +37,7 @@ final class DataServiceTests: XCTestCaseBase {
         XCTAssertNil(encryption.storedKeyWrap)
     }
 
-    func testLegacyFileIsUpgradedToModernFormatOnBind() throws {
+    func testLegacyFileIsBackedUpBeforeUpgrade() throws {
         let encryption = makeEncryption()
         let service = makeDataService(encryption: encryption)
 
@@ -47,7 +47,8 @@ final class DataServiceTests: XCTestCaseBase {
             appTitle: "旧数据"
         )
         let url = tempURL("legacy.txt")
-        try TestCipher.legacyEncrypt(TestCipher.json(appData), salt: TestCipher.randomSalt()).write(to: url)
+        let legacyBlob = TestCipher.legacyEncrypt(TestCipher.json(appData), salt: TestCipher.randomSalt())
+        try legacyBlob.write(to: url)
 
         service.bind(to: url)
 
@@ -56,7 +57,13 @@ final class DataServiceTests: XCTestCaseBase {
         XCTAssertEqual(service.data.appTitle, "旧数据")
         XCTAssertEqual(service.data.groups.count, 1)
 
-        // 绑定后文件应已自动升级为现代格式
+        // 只读加载不能改写旧文件。
+        XCTAssertEqual(try Data(contentsOf: url), legacyBlob)
+
+        // 首次保存时先创建原始备份，再升级为现代格式。
+        XCTAssertTrue(service.save())
+        XCTAssertEqual(try Data(contentsOf: url.appendingPathExtension("xrecord-v1-backup")), legacyBlob)
+
         let upgraded = try Data(contentsOf: url)
         XCTAssertTrue(EncryptionService.hasModernHeader(upgraded))
         let upgradedParsed = try XCTUnwrap(encryption.parse(upgraded))
@@ -83,7 +90,11 @@ final class DataServiceTests: XCTestCaseBase {
         )
         let goodURL = tempURL("good.txt")
         let blob = try XCTUnwrap(
-            encryption.encrypt(TestCipher.json(goodData), masterKey: encryption.loadOrCreateMasterKey(), wrap: nil)
+            encryption.encrypt(
+                TestCipher.json(goodData),
+                masterKey: try XCTUnwrap(encryption.loadOrCreateMasterKey()),
+                wrap: nil
+            )
         )
         try blob.write(to: goodURL)
         service.bind(to: goodURL)
@@ -151,5 +162,20 @@ final class DataServiceTests: XCTestCaseBase {
         XCTAssertFalse(service.hasBoundFile)
         XCTAssertNil(service.currentFileURL)
         XCTAssertFalse(service.isLocked)
+    }
+
+    func testCreateFileDoesNotBindOrWriteWhenKeychainStoreFails() {
+        let store = InMemoryMasterKeyStore()
+        store.shouldFailStore = true
+        let encryption = makeEncryption(store: store)
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("must-not-exist.txt")
+
+        service.createFile(at: url)
+
+        XCTAssertFalse(service.hasBoundFile)
+        XCTAssertNil(service.currentFileURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertEqual(alerts.last?.title, "无法保存数据")
     }
 }

@@ -18,6 +18,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        guard let path = filenames.first else {
+            sender.reply(toOpenOrPrint: .failure)
+            return
+        }
+
+        let url = URL(fileURLWithPath: path)
+        let supportedExtensions = ["xrecord", "txt"]
+        guard supportedExtensions.contains(url.pathExtension.lowercased()) else {
+            sender.reply(toOpenOrPrint: .failure)
+            return
+        }
+
+        if DataService.shared.bind(to: url) {
+            showMainWindow()
+            DataService.shared.offerLegacyExtensionMigrationIfNeeded()
+            sender.reply(toOpenOrPrint: .success)
+        } else {
+            sender.reply(toOpenOrPrint: .failure)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         print("[XRecord] 🚀 applicationDidFinishLaunching 开始")
         
@@ -44,6 +66,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .didOpenLaunchTarget,
             object: nil
         )
+
+        DispatchQueue.main.async {
+            DataService.shared.offerLegacyExtensionMigrationIfNeeded()
+        }
         
     }
 

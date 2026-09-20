@@ -1,7 +1,13 @@
 import Foundation
 import AppKit
+import UniformTypeIdentifiers
 
-// MARK: - 数据持久化服务（读写本地 record.txt）
+extension UTType {
+    static let xrecordDocument = UTType(filenameExtension: "xrecord")
+        ?? UTType(exportedAs: "com.xrecord.document", conformingTo: .data)
+}
+
+// MARK: - 数据持久化服务（读写本地 XRecord 密码本）
 
 class DataService: ObservableObject {
     static let shared = DataService()
@@ -32,11 +38,14 @@ class DataService: ObservableObject {
     /// 旧格式首次写成新格式前保留原始字节，确保迁移始终可回退。
     private var pendingMigrationBackup: Data?
 
-    /// 默认路径：~/Desktop/xrecord/record.txt
+    /// 同一次运行中不重复打扰用户；下次启动仍可再次选择。
+    private var promptedLegacyPaths = Set<String>()
+
+    /// 默认路径：~/Desktop/xrecord/XRecord.xrecord
     private var defaultFileURL: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let dir = home.appendingPathComponent("Desktop/xrecord")
-        return dir.appendingPathComponent("record.txt")
+        return dir.appendingPathComponent("XRecord.xrecord")
     }
 
     /// 当前文件路径（优先用绑定的，否则用默认）
@@ -102,18 +111,21 @@ class DataService: ObservableObject {
     // MARK: - 文件选择
     func pickFile() {
         let panel = NSOpenPanel()
-        panel.title = "选择 record.txt 数据文件"
-        panel.allowedContentTypes = [.plainText]
+        panel.title = "选择 XRecord 密码本"
+        panel.allowedContentTypes = [.xrecordDocument, .plainText]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        bind(to: url)
+        if bind(to: url) {
+            offerLegacyExtensionMigrationIfNeeded()
+        }
     }
 
     /// 绑定文件；若无法解密则回滚绑定，避免误覆盖
-    func bind(to url: URL) {
+    @discardableResult
+    func bind(to url: URL) -> Bool {
         let previousURL = currentFileURL
         let previousBound = hasBoundFile
         let previousLocked = isLocked
@@ -130,14 +142,16 @@ class DataService: ObservableObject {
             isLocked = previousLocked
             data = previousData
             pendingMigrationBackup = previousMigrationBackup
+            return false
         }
+        return true
     }
 
     func createNewFile() {
         let panel = NSSavePanel()
-        panel.title = "创建新的数据文件"
-        panel.nameFieldStringValue = "record.txt"
-        panel.allowedContentTypes = [.plainText]
+        panel.title = "创建新的 XRecord 密码本"
+        panel.nameFieldStringValue = "XRecord.xrecord"
+        panel.allowedContentTypes = [.xrecordDocument]
         panel.canCreateDirectories = true
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -155,6 +169,65 @@ class DataService: ObservableObject {
         isLocked = false
         hasBoundFile = true
         isLoaded = true
+    }
+
+    /// 将当前绑定的旧 .txt 密码本安全改名为 .xrecord，不修改文件内容。
+    @discardableResult
+    func renameBoundFileToXRecord() -> Bool {
+        guard let sourceURL = currentFileURL,
+              sourceURL.pathExtension.lowercased() == "txt" else {
+            return false
+        }
+
+        let destinationURL = sourceURL
+            .deletingPathExtension()
+            .appendingPathExtension("xrecord")
+
+        guard !FileManager.default.fileExists(atPath: destinationURL.path) else {
+            presentMessage(
+                "无法修改文件名",
+                "同一位置已经存在 \(destinationURL.lastPathComponent)。原密码本和绑定路径均未更改。"
+            )
+            return false
+        }
+
+        do {
+            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+            savePath(destinationURL)
+            return true
+        } catch {
+            presentMessage(
+                "无法修改文件名",
+                "原密码本和绑定路径均未更改：\(error.localizedDescription)"
+            )
+            return false
+        }
+    }
+
+    /// 对已成功解锁的旧 .txt 密码本给出一次改名选择。
+    func offerLegacyExtensionMigrationIfNeeded() {
+        guard hasBoundFile,
+              !isLocked,
+              let legacyURL = currentFileURL,
+              legacyURL.pathExtension.lowercased() == "txt",
+              !promptedLegacyPaths.contains(legacyURL.path) else {
+            return
+        }
+        promptedLegacyPaths.insert(legacyURL.path)
+
+        let alert = NSAlert()
+        alert.messageText = "将密码本改为 .xrecord 文件？"
+        alert.informativeText = "只会修改文件扩展名，不会更改或重新加密密码本内容。修改后 XRecord 会自动绑定新文件。"
+        alert.addButton(withTitle: "修改为 .xrecord")
+        alert.addButton(withTitle: "以后再说")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if renameBoundFileToXRecord(), let renamedURL = currentFileURL {
+            presentMessage(
+                "修改完成",
+                "密码本已改名为 \(renamedURL.lastPathComponent)，数据内容保持不变。"
+            )
+        }
     }
 
     // MARK: - 加载（解密）

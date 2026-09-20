@@ -1,11 +1,12 @@
 import XCTest
+import UniformTypeIdentifiers
 
 final class DataServiceTests: XCTestCaseBase {
 
     func testCreateFileWritesModernEncryptedFile() throws {
         let encryption = makeEncryption()
         let service = makeDataService(encryption: encryption)
-        let url = tempURL("new.txt")
+        let url = tempURL("XRecord.xrecord")
 
         service.createFile(at: url)
 
@@ -15,6 +16,48 @@ final class DataServiceTests: XCTestCaseBase {
 
         let blob = try Data(contentsOf: url)
         XCTAssertTrue(EncryptionService.hasModernHeader(blob))
+    }
+
+    func testXRecordDocumentTypeUsesCustomExtension() {
+        XCTAssertTrue(UTType.xrecordDocument.conforms(to: .data))
+        XCTAssertEqual(UTType.xrecordDocument.preferredFilenameExtension, "xrecord")
+    }
+
+    func testRenameBoundTXTFilePreservesContentsAndUpdatesBinding() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let oldURL = tempURL("我的密码本.txt")
+        service.createFile(at: oldURL)
+        let originalContents = try Data(contentsOf: oldURL)
+
+        XCTAssertTrue(service.renameBoundFileToXRecord())
+
+        let newURL = tempURL("我的密码本.xrecord")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path))
+        XCTAssertEqual(try Data(contentsOf: newURL), originalContents)
+        XCTAssertEqual(service.currentFileURL, newURL)
+        XCTAssertEqual(defaults.string(forKey: "xrecord_file_path"), newURL.path)
+        XCTAssertTrue(service.hasBoundFile)
+        XCTAssertFalse(service.isLocked)
+    }
+
+    func testRenameBoundTXTFileNeverOverwritesExistingXRecordFile() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let oldURL = tempURL("密码本.txt")
+        let existingURL = tempURL("密码本.xrecord")
+        service.createFile(at: oldURL)
+        let originalContents = try Data(contentsOf: oldURL)
+        let existingContents = Data("existing-file".utf8)
+        try existingContents.write(to: existingURL)
+
+        XCTAssertFalse(service.renameBoundFileToXRecord())
+
+        XCTAssertEqual(try Data(contentsOf: oldURL), originalContents)
+        XCTAssertEqual(try Data(contentsOf: existingURL), existingContents)
+        XCTAssertEqual(service.currentFileURL, oldURL)
+        XCTAssertEqual(defaults.string(forKey: "xrecord_file_path"), oldURL.path)
+        XCTAssertEqual(alerts.last?.title, "无法修改文件名")
     }
 
     func testSetAndClearMigrationPassphrase() throws {

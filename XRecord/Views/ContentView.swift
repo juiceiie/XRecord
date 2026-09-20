@@ -283,7 +283,7 @@ struct BindFileView: View {
             Divider()
 
             VStack(spacing: 16) {
-                Text("选择或创建一个 record.txt 文件来存储你的数据")
+                Text("选择或创建一个 XRecord 密码本来存储你的数据")
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -321,7 +321,7 @@ struct BindFileView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("📂 选择已有文件")
                                     .font(.system(size: 14, weight: .medium))
-                                Text("从任意位置选择已有的 record.txt 文件")
+                                Text("支持 .xrecord 密码本和已有的 .txt 数据文件")
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondary)
                             }
@@ -346,7 +346,7 @@ struct BindFileView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("📄 创建新文件")
                                     .font(.system(size: 14, weight: .medium))
-                                Text("在指定位置创建新的 record.txt 数据文件")
+                                Text("在指定位置创建新的 .xrecord 密码本")
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondary)
                             }

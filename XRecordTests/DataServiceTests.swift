@@ -23,6 +23,67 @@ final class DataServiceTests: XCTestCaseBase {
         XCTAssertEqual(UTType.xrecordDocument.preferredFilenameExtension, "xrecord")
     }
 
+    func testCardSharingTextUsesStableFormat() {
+        let card = Card(
+            groupId: "group-id",
+            name: "测试后台",
+            url: "https://example.com/login",
+            username: "demo@example.com",
+            password: "secret123",
+            note: "仅供测试"
+        )
+
+        XCTAssertEqual(
+            card.sharingText(groupName: "工作"),
+            """
+            【XRecord笔记本】
+            分类：工作
+            名称：测试后台
+            地址：https://example.com/login
+            账号：demo@example.com
+            密码：secret123
+            备注：仅供测试
+            """
+        )
+
+        XCTAssertEqual(
+            card.sharingText(groupName: "工作", targetLabel: "APP", targetValue: "Safari"),
+            """
+            【XRecord笔记本】
+            分类：工作
+            名称：测试后台
+            APP：Safari
+            账号：demo@example.com
+            密码：secret123
+            备注：仅供测试
+            """
+        )
+    }
+
+    func testMoveGroupReordersAndPersistsGroups() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("ordered-groups.xrecord")
+        service.createFile(at: url)
+
+        let first = Group(name: "第一组", colorHex: "#111111")
+        let second = Group(name: "第二组", colorHex: "#222222")
+        let third = Group(name: "第三组", colorHex: "#333333")
+        service.addGroup(first)
+        service.addGroup(second)
+        service.addGroup(third)
+
+        XCTAssertTrue(service.moveGroup(id: first.id, onto: third.id))
+        XCTAssertEqual(service.data.groups.map(\.id), [second.id, third.id, first.id])
+
+        let reloaded = makeDataService(encryption: encryption)
+        XCTAssertTrue(reloaded.bind(to: url))
+        XCTAssertEqual(reloaded.data.groups.map(\.id), [second.id, third.id, first.id])
+
+        XCTAssertTrue(reloaded.moveGroup(id: first.id, onto: second.id))
+        XCTAssertEqual(reloaded.data.groups.map(\.id), [first.id, second.id, third.id])
+    }
+
     func testRenameBoundTXTFilePreservesContentsAndUpdatesBinding() throws {
         let encryption = makeEncryption()
         let service = makeDataService(encryption: encryption)

@@ -14,7 +14,7 @@ SIGN_DIR="$HOME/Library/Application Support/XRecord/signing"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if security find-identity -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "$IDENTITY_NAME"; then
-    echo "已存在签名身份「$IDENTITY_NAME」，跳过创建。"
+    echo "已存在签名身份「${IDENTITY_NAME}」，跳过创建。"
     exit 0
 fi
 
@@ -40,6 +40,6 @@ security import XRecord.p12 \
     -P "$P12_PASSWORD" \
     -A -T /usr/bin/codesign -T /usr/bin/security
 
-echo "已创建签名身份「$IDENTITY_NAME」。"
+echo "已创建签名身份「${IDENTITY_NAME}」。"
 echo "备份目录：$SIGN_DIR"
 security find-identity -p codesigning "$KEYCHAIN" | grep "$IDENTITY_NAME" || true

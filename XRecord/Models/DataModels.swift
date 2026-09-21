@@ -46,6 +46,22 @@ struct Card: Codable, Identifiable, Equatable {
         showsCredentialPanel ?? true
     }
 
+    func sharingText(
+        groupName: String?,
+        targetLabel: String = "地址",
+        targetValue: String? = nil
+    ) -> String {
+        [
+            "【XRecord笔记本】",
+            "分类：\(groupName ?? "未分类")",
+            "名称：\(name)",
+            "\(targetLabel)：\(targetValue ?? url)",
+            "账号：\(username)",
+            "密码：\(password)",
+            "备注：\(note)"
+        ].joined(separator: "\n")
+    }
+
     static func == (lhs: Card, rhs: Card) -> Bool {
         lhs.id == rhs.id
     }

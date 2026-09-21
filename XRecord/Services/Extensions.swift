@@ -71,6 +71,12 @@ enum CredentialPanelPreferences {
     }
 }
 
+// MARK: - 密码输入偏好
+
+enum PasswordInputPreferences {
+    static let forcesRomanInputKey = "passwordInputForcesRomanInput"
+}
+
 // MARK: - 可打开目标（网址或 macOS 应用）
 
 enum LaunchTarget {
@@ -92,6 +98,11 @@ enum LaunchTarget {
     static func isApplication(_ value: String) -> Bool {
         guard let url = resolvedURL(from: value), url.isFileURL else { return false }
         return url.pathExtension.lowercased() == "app"
+    }
+
+    static func isWebAddress(_ value: String) -> Bool {
+        guard let url = resolvedURL(from: value) else { return false }
+        return isWebLink(url)
     }
 
     static func displayName(for value: String, dataService: DataService) -> String {

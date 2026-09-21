@@ -25,6 +25,7 @@ final class EncryptionService {
 
     private let keyStore: MasterKeyStoring
     private let defaults: UserDefaults
+    private var inMemoryMasterKey: Data?
 
     /// 现代文件格式的魔数："XRC2"
     static let fileMagic = Data([0x58, 0x52, 0x43, 0x32])
@@ -47,7 +48,11 @@ final class EncryptionService {
 
     /// 只读取已存在的主密钥，不创建
     func cachedMasterKey() -> Data? {
+        if let key = inMemoryMasterKey, key.count == keyLength {
+            return key
+        }
         guard let key = keyStore.loadMasterKey(), key.count == keyLength else { return nil }
+        inMemoryMasterKey = key
         return key
     }
 
@@ -57,13 +62,16 @@ final class EncryptionService {
         if let key = cachedMasterKey() { return key }
         let key = Self.randomData(count: keyLength)
         guard keyStore.storeMasterKey(key) else { return nil }
+        inMemoryMasterKey = key
         return key
     }
 
     /// 写入主密钥（迁移口令解锁后使用）
     @discardableResult
     func storeMasterKey(_ key: Data) -> Bool {
-        keyStore.storeMasterKey(key)
+        guard key.count == keyLength, keyStore.storeMasterKey(key) else { return false }
+        inMemoryMasterKey = key
+        return true
     }
 
     // MARK: - 迁移口令包装

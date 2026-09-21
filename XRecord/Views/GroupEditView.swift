@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - 分组编辑弹窗
 
@@ -53,7 +54,7 @@ struct GroupEditView: View {
                     Text("颜色")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.secondary)
-                    HStack(spacing: 12) {
+                    HStack(spacing: 10) {
                         // 当前颜色预览
                         Circle()
                             .fill(Color(hex: selectedColor))
@@ -81,7 +82,18 @@ struct GroupEditView: View {
                                 .onTapGesture { selectedColor = color }
                         }
 
-                        Spacer()
+                        Spacer(minLength: 0)
+
+                        Button(action: chooseRandomColor) {
+                            Image(systemName: "dice.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.secondary)
+                                .frame(width: 22, height: 22)
+                                .background(Color.secondary.opacity(0.1))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("随机选择未使用的颜色")
 
                         // 自定义颜色按钮（打开系统颜色选择器）
                         Button(action: { showColorPicker = true }) {
@@ -136,6 +148,49 @@ struct GroupEditView: View {
                 currentEditingId = nil
                 name = ""
                 selectedColor = Group.defaultColors[0]
+            }
+        }
+    }
+
+    private func chooseRandomColor() {
+        var occupiedColors = Set(
+            dataService.data.groups
+                .filter { $0.id != currentEditingId }
+                .map { $0.colorHex.uppercased() }
+        )
+        // 连续点击随机按钮时也应产生新颜色。
+        occupiedColors.insert(selectedColor.uppercased())
+
+        let availablePresetColors = Group.defaultColors.filter {
+            !occupiedColors.contains($0.uppercased())
+        }
+        if let color = availablePresetColors.randomElement() {
+            selectedColor = color
+            return
+        }
+
+        // 预设色全部占用后，继续生成适合标签展示的高饱和颜色。
+        for _ in 0..<256 {
+            let generatedColor = NSColor(
+                calibratedHue: CGFloat.random(in: 0..<1),
+                saturation: CGFloat.random(in: 0.58...0.78),
+                brightness: CGFloat.random(in: 0.72...0.9),
+                alpha: 1
+            )
+            let candidate = Color(nsColor: generatedColor).toHex()
+
+            if !occupiedColors.contains(candidate.uppercased()) {
+                selectedColor = candidate
+                return
+            }
+        }
+
+        // 理论上的随机碰撞兜底，确保绝不返回已使用颜色。
+        for rawValue in 0...0xFFFFFF {
+            let candidate = String(format: "#%06X", rawValue)
+            if !occupiedColors.contains(candidate) {
+                selectedColor = candidate
+                return
             }
         }
     }
@@ -195,9 +250,8 @@ struct ColorPickerSheet: View {
 
             Divider()
 
-            ColorPicker("分组颜色", selection: $pickedColor, supportsOpacity: false)
-                .labelsHidden()
-                .scaleEffect(1.3)
+            CenteredColorWell(color: $pickedColor)
+                .frame(width: 90, height: 44)
                 .padding(30)
                 .frame(maxWidth: .infinity, minHeight: 120)
                 .background(
@@ -209,12 +263,12 @@ struct ColorPickerSheet: View {
             Divider()
 
             HStack(spacing: 10) {
-                Button("取消") { isPresented = false }
+                Button("取消") { dismissColorPicker() }
                     .buttonStyle(.bordered)
                 Spacer()
                 Button("确认") {
                     selectedHex = pickedColor.toHex()
-                    isPresented = false
+                    dismissColorPicker()
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -224,6 +278,67 @@ struct ColorPickerSheet: View {
         .frame(width: 300, height: 280)
         .onAppear {
             pickedColor = Color(hex: selectedHex)
+        }
+        .onDisappear {
+            NSColorPanel.shared.orderOut(nil)
+        }
+    }
+
+    private func dismissColorPicker() {
+        NSColorPanel.shared.orderOut(nil)
+        isPresented = false
+    }
+}
+
+private struct CenteredColorWell: NSViewRepresentable {
+    @Binding var color: Color
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(color: $color)
+    }
+
+    func makeNSView(context: Context) -> NSColorWell {
+        let colorWell = NSColorWell()
+        colorWell.color = NSColor(color)
+        colorWell.target = context.coordinator
+        colorWell.action = #selector(Coordinator.colorChanged(_:))
+
+        DispatchQueue.main.async {
+            colorWell.activate(true)
+            context.coordinator.centerColorPanel()
+        }
+        return colorWell
+    }
+
+    func updateNSView(_ nsView: NSColorWell, context: Context) {
+        context.coordinator.binding = $color
+        let newColor = NSColor(color)
+        if nsView.color != newColor {
+            nsView.color = newColor
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var binding: Binding<Color>
+
+        init(color: Binding<Color>) {
+            binding = color
+        }
+
+        @objc func colorChanged(_ sender: NSColorWell) {
+            binding.wrappedValue = Color(nsColor: sender.color)
+        }
+
+        func centerColorPanel() {
+            let panel = NSColorPanel.shared
+            guard let screen = panel.screen ?? NSScreen.main else { return }
+            let visibleFrame = screen.visibleFrame
+            let origin = NSPoint(
+                x: visibleFrame.midX - panel.frame.width / 2,
+                y: visibleFrame.midY - panel.frame.height / 2
+            )
+            panel.setFrameOrigin(origin)
+            panel.orderFront(nil)
         }
     }
 }

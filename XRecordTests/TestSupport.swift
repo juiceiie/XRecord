@@ -9,9 +9,13 @@ import XCTest
 /// 内存版主密钥存储，避免测试触碰真实钥匙串
 final class InMemoryMasterKeyStore: MasterKeyStoring {
     private(set) var key: Data?
+    private(set) var loadCallCount = 0
     var shouldFailStore = false
 
-    func loadMasterKey() -> Data? { key }
+    func loadMasterKey() -> Data? {
+        loadCallCount += 1
+        return key
+    }
 
     @discardableResult
     func storeMasterKey(_ key: Data) -> Bool {

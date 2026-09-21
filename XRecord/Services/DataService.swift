@@ -495,6 +495,28 @@ class DataService: ObservableObject {
         }
     }
 
+    /// 将分组拖到目标分组所在位置；向下拖动时放在目标之后，向上拖动时放在目标之前。
+    @discardableResult
+    func moveGroup(id draggedId: String, onto targetId: String) -> Bool {
+        guard draggedId != targetId,
+              let fromIndex = data.groups.firstIndex(where: { $0.id == draggedId }),
+              let originalTargetIndex = data.groups.firstIndex(where: { $0.id == targetId }) else {
+            return false
+        }
+
+        let movingDown = fromIndex < originalTargetIndex
+        let movedGroup = data.groups.remove(at: fromIndex)
+        guard let targetIndex = data.groups.firstIndex(where: { $0.id == targetId }) else {
+            data.groups.insert(movedGroup, at: fromIndex)
+            return false
+        }
+
+        let insertionIndex = movingDown ? targetIndex + 1 : targetIndex
+        data.groups.insert(movedGroup, at: insertionIndex)
+        save()
+        return true
+    }
+
     func deleteGroup(id: String) {
         data.groups.removeAll { $0.id == id }
         data.cards.removeAll { $0.groupId == id }

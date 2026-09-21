@@ -9,6 +9,7 @@ struct CardEditView: View {
     @Binding var isPresented: Bool
     let editingCard: Card?
     var groupId: String?
+    var showsHeader: Bool = true
 
     @State private var name: String = ""
     @State private var url: String = ""
@@ -21,6 +22,8 @@ struct CardEditView: View {
     @State private var showsCredentialPanel: Bool = true
     @AppStorage(CredentialPanelPreferences.isEnabledKey)
     private var credentialPanelEnabled = true
+    @AppStorage(PasswordInputPreferences.forcesRomanInputKey)
+    private var forcesRomanPasswordInput = false
 
     var isEditing: Bool { editingCard != nil }
     
@@ -34,38 +37,39 @@ struct CardEditView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 标题栏
-            HStack {
-                Text(isEditing ? "编辑条目" : "添加条目")
-                    .font(.system(size: 16, weight: .semibold))
-                Spacer()
-                // 显示当前分组
-                if !isEditing {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color(hex: dataService.data.groups.first(where: { $0.id == groupId })?.colorHex ?? "#888888"))
-                            .frame(width: 8, height: 8)
-                        Text(groupName)
-                            .font(.system(size: 11))
+            if showsHeader {
+                // Sheet 模式使用自定义标题栏；独立窗口使用 macOS 原生标题栏。
+                HStack {
+                    Text(isEditing ? "编辑条目" : "添加条目")
+                        .font(.system(size: 16, weight: .semibold))
+                    Spacer()
+                    if !isEditing {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(Color(hex: dataService.data.groups.first(where: { $0.id == groupId })?.colorHex ?? "#888888"))
+                                .frame(width: 8, height: 8)
+                            Text(groupName)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.secondary.opacity(0.1))
+                        .clipShape(Capsule())
+                    }
+                    Button(action: { isPresented = false }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.secondary)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.secondary.opacity(0.1))
-                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
                 }
-                Button(action: { isPresented = false }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 14)
 
-            Divider()
+                Divider()
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -85,15 +89,12 @@ struct CardEditView: View {
                                     .foregroundColor(.secondary)
                             }
                             HStack {
-                                if showPassword {
-                                    TextField("password", text: $password)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 14))
-                                } else {
-                                    SecureField("password", text: $password)
-                                        .textFieldStyle(.roundedBorder)
-                                        .font(.system(size: 14))
-                                }
+                                LastCharacterSecureField(
+                                    text: $password,
+                                    revealsText: showPassword,
+                                    forcesRomanInput: forcesRomanPasswordInput
+                                )
+                                .frame(height: 22)
 
                                 Button(action: { showPassword.toggle() }) {
                                     Image(systemName: showPassword ? "eye.slash" : "eye")
@@ -164,7 +165,7 @@ struct CardEditView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 500, height: 480)
+        .frame(width: 500, height: showsHeader ? 480 : 430)
         .alert("请先选择一个分组", isPresented: $showGroupError) {
             Button("确定") { isPresented = false }
         } message: {
@@ -224,6 +225,206 @@ struct CardEditView: View {
             dataService.addCard(newCard)
         }
         isPresented = false
+    }
+}
+
+// MARK: - 可自由移动的条目编辑窗口
+
+@MainActor
+final class CardEditWindowPresenter: NSObject, ObservableObject, NSWindowDelegate {
+    private var editorWindow: NSWindow?
+
+    func present(dataService: DataService, editingCard: Card?, groupId: String) {
+        editorWindow?.close()
+
+        let groupName = dataService.data.groups.first(where: { $0.id == groupId })?.name ?? "未分组"
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 430),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = editingCard == nil ? "添加条目 · \(groupName)" : "编辑条目 · \(groupName)"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.contentMinSize = NSSize(width: 500, height: 430)
+        window.contentMaxSize = NSSize(width: 500, height: 430)
+
+        let isPresented = Binding<Bool>(
+            get: { [weak window] in window?.isVisible == true },
+            set: { [weak window] newValue in
+                if !newValue {
+                    window?.close()
+                }
+            }
+        )
+        let contentView = CardEditView(
+            isPresented: isPresented,
+            editingCard: editingCard,
+            groupId: groupId,
+            showsHeader: false
+        )
+        .environmentObject(dataService)
+
+        window.contentView = NSHostingView(rootView: contentView)
+        position(window, relativeTo: NSApp.keyWindow)
+        editorWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow,
+              closingWindow === editorWindow else { return }
+        editorWindow = nil
+    }
+
+    private func position(_ window: NSWindow, relativeTo parentWindow: NSWindow?) {
+        guard let parentWindow else {
+            window.center()
+            return
+        }
+        let origin = NSPoint(
+            x: parentWindow.frame.midX - window.frame.width / 2,
+            y: parentWindow.frame.midY - window.frame.height / 2
+        )
+        window.setFrameOrigin(origin)
+    }
+}
+
+// MARK: - 延时遮蔽密码输入
+
+private struct LastCharacterSecureField: NSViewRepresentable {
+    @Binding var text: String
+    let revealsText: Bool
+    let forcesRomanInput: Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            text: $text,
+            revealsText: revealsText
+        )
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let container = NSView()
+        let secureField = NSSecureTextField()
+        let maskLabel = PasswordMaskLabel(labelWithString: "")
+        let font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+
+        secureField.translatesAutoresizingMaskIntoConstraints = false
+        secureField.placeholderString = "password"
+        secureField.font = font
+        secureField.textColor = .clear
+        secureField.delegate = context.coordinator
+        secureField.stringValue = text
+        (secureField.cell as? NSTextFieldCell)?.allowedInputSourceLocales = allowedInputSourceLocales
+
+        maskLabel.translatesAutoresizingMaskIntoConstraints = false
+        maskLabel.font = font
+        maskLabel.textColor = .labelColor
+        maskLabel.lineBreakMode = .byClipping
+        maskLabel.maximumNumberOfLines = 1
+
+        container.addSubview(secureField)
+        container.addSubview(maskLabel)
+        NSLayoutConstraint.activate([
+            secureField.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            secureField.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            secureField.topAnchor.constraint(equalTo: container.topAnchor),
+            secureField.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            maskLabel.leadingAnchor.constraint(equalTo: secureField.leadingAnchor, constant: 7),
+            maskLabel.trailingAnchor.constraint(lessThanOrEqualTo: secureField.trailingAnchor, constant: -7),
+            maskLabel.centerYAnchor.constraint(equalTo: secureField.centerYAnchor)
+        ])
+
+        context.coordinator.attach(secureField: secureField, maskLabel: maskLabel)
+        context.coordinator.refresh(value: text, revealLast: false)
+        return container
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.binding = $text
+        let needsRefresh = context.coordinator.revealsText != revealsText
+            || context.coordinator.secureField?.stringValue != text
+        context.coordinator.revealsText = revealsText
+        if let cell = context.coordinator.secureField?.cell as? NSTextFieldCell {
+            cell.allowedInputSourceLocales = allowedInputSourceLocales
+        }
+        if needsRefresh {
+            context.coordinator.refresh(value: text, revealLast: false)
+        }
+    }
+
+    private var allowedInputSourceLocales: [String]? {
+        forcesRomanInput ? [NSAllRomanInputSourcesLocaleIdentifier] : nil
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var binding: Binding<String>
+        weak var secureField: NSSecureTextField?
+        weak var maskLabel: NSTextField?
+        var revealsText: Bool
+        private var previousValue: String
+        private var hideWorkItem: DispatchWorkItem?
+
+        init(text: Binding<String>, revealsText: Bool) {
+            binding = text
+            self.revealsText = revealsText
+            previousValue = text.wrappedValue
+        }
+
+        deinit {
+            hideWorkItem?.cancel()
+        }
+
+        func attach(secureField: NSSecureTextField, maskLabel: NSTextField) {
+            self.secureField = secureField
+            self.maskLabel = maskLabel
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSSecureTextField else { return }
+            let newValue = field.stringValue
+            let appendedCharacter = newValue.count > previousValue.count && newValue.hasPrefix(previousValue)
+
+            previousValue = newValue
+            binding.wrappedValue = newValue
+            refresh(value: newValue, revealLast: appendedCharacter)
+
+            hideWorkItem?.cancel()
+            guard appendedCharacter, !newValue.isEmpty else { return }
+
+            let expectedValue = newValue
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, self.secureField?.stringValue == expectedValue else { return }
+                self.refresh(value: expectedValue, revealLast: false)
+            }
+            hideWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: workItem)
+        }
+
+        func refresh(value: String, revealLast: Bool) {
+            if secureField?.stringValue != value {
+                secureField?.stringValue = value
+            }
+            previousValue = value
+
+            let characters = Array(value)
+            if revealsText {
+                maskLabel?.stringValue = value
+                return
+            }
+            maskLabel?.stringValue = String(characters.enumerated().map { index, character in
+                revealLast && index == characters.count - 1 ? character : "•"
+            })
+        }
+    }
+}
+
+private final class PasswordMaskLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 

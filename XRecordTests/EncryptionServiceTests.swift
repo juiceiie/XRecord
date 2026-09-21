@@ -13,6 +13,18 @@ final class EncryptionServiceTests: XCTestCaseBase {
         let second = try XCTUnwrap(encryption.loadOrCreateMasterKey())
         XCTAssertEqual(first, second)
         XCTAssertEqual(store.key, first)
+        XCTAssertEqual(store.loadCallCount, 1)
+    }
+
+    func testStoredMasterKeyIsReusedInMemoryWithoutAnotherKeychainRead() throws {
+        let store = InMemoryMasterKeyStore()
+        let encryption = makeEncryption(store: store)
+        let key = Data(repeating: 0x5A, count: 32)
+
+        XCTAssertTrue(encryption.storeMasterKey(key))
+        XCTAssertEqual(encryption.cachedMasterKey(), key)
+        XCTAssertEqual(encryption.loadOrCreateMasterKey(), key)
+        XCTAssertEqual(store.loadCallCount, 0)
     }
 
     func testEncryptDecryptRoundTrip() throws {

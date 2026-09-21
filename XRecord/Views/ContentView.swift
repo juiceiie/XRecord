@@ -6,26 +6,21 @@ class UpdateServiceWrapper: ObservableObject {
     let service = UpdateService.shared
 }
 
-private struct AddCardRequest: Identifiable {
-    let groupId: String
-    var id: String { groupId }
-}
-
 struct ContentView: View {
     @EnvironmentObject var dataService: DataService
     @StateObject private var updateServiceWrapper: UpdateServiceWrapper
+    @StateObject private var cardEditWindowPresenter: CardEditWindowPresenter
 
     init() {
         // 使用包装器避免 @MainActor + @StateObject 的初始化问题
         _updateServiceWrapper = StateObject(wrappedValue: UpdateServiceWrapper())
+        _cardEditWindowPresenter = StateObject(wrappedValue: CardEditWindowPresenter())
     }
 
     private var updateService: UpdateService { updateServiceWrapper.service }
     @State private var selectedGroupId: String? = nil
     @State private var showAddGroup = false
-    @State private var addCardRequest: AddCardRequest?
     @State private var editingGroup: Group? = nil
-    @State private var editingCard: Card? = nil
     @State private var searchText = ""
     @State private var showBindFile = false
     @State private var showSettings = false
@@ -57,10 +52,20 @@ struct ContentView: View {
                     // 右侧内容区
                     CardListView(
                         selectedGroupId: $selectedGroupId,
-                        editingCard: $editingCard,
                         searchText: $searchText,
                         onPrepareAddCard: { groupId in
-                            addCardRequest = AddCardRequest(groupId: groupId)
+                            cardEditWindowPresenter.present(
+                                dataService: dataService,
+                                editingCard: nil,
+                                groupId: groupId
+                            )
+                        },
+                        onEditCard: { card in
+                            cardEditWindowPresenter.present(
+                                dataService: dataService,
+                                editingCard: card,
+                                groupId: card.groupId
+                            )
                         }
                     )
                 }
@@ -73,7 +78,11 @@ struct ContentView: View {
                     let targetGroupId = requestedGroupId ?? selectedGroupId
                     guard let targetGroup = dataService.data.groups.first(where: { $0.id == targetGroupId }) else { return }
                     selectedGroupId = targetGroup.id
-                    addCardRequest = AddCardRequest(groupId: targetGroup.id)
+                    cardEditWindowPresenter.present(
+                        dataService: dataService,
+                        editingCard: nil,
+                        groupId: targetGroup.id
+                    )
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .selectGroup)) { notification in
                     guard let groupId = notification.object as? String,
@@ -88,26 +97,6 @@ struct ContentView: View {
                             // 新建分组后自动选中它
                             selectedGroupId = newGroupId
                         }
-                    )
-                }
-                .sheet(item: $addCardRequest) { request in
-                    CardEditView(
-                        isPresented: Binding(
-                            get: { addCardRequest != nil },
-                            set: { if !$0 { addCardRequest = nil } }
-                        ),
-                        editingCard: nil,
-                        groupId: request.groupId
-                    )
-                }
-                .sheet(item: $editingCard) { card in
-                    CardEditView(
-                        isPresented: Binding(
-                            get: { editingCard != nil },
-                            set: { if !$0 { editingCard = nil } }
-                        ),
-                        editingCard: card,
-                        groupId: card.groupId
                     )
                 }
                 .onAppear {
@@ -445,6 +434,11 @@ struct GroupListView: View {
                                 }
                             }
                         )
+                        .draggable(group.id)
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let draggedId = items.first else { return false }
+                            return dataService.moveGroup(id: draggedId, onto: group.id)
+                        }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -615,9 +609,9 @@ struct AllGroupsRowView: View {
 struct CardListView: View {
     @EnvironmentObject var dataService: DataService
     @Binding var selectedGroupId: String?
-    @Binding var editingCard: Card?
     @Binding var searchText: String
     var onPrepareAddCard: ((String) -> Void)? = nil
+    let onEditCard: (Card) -> Void
 
     var selectedGroup: Group? {
         dataService.data.groups.first { $0.id == selectedGroupId }
@@ -699,7 +693,7 @@ struct CardListView: View {
                     cards: $dataService.data.cards,
                     searchText: searchText,
                     onEdit: { card in
-                        editingCard = card
+                        onEditCard(card)
                     },
                     onDelete: { card in
                         dataService.deleteCard(id: card.id)
@@ -727,7 +721,7 @@ struct CardListView: View {
                                     card: card,
                                     dataService: dataService,
                                     onEdit: {
-                                        editingCard = card
+                                        onEditCard(card)
                                     },
                                     onDelete: {
                                         dataService.deleteCard(id: card.id)
@@ -848,6 +842,7 @@ struct CardItemView: View {
     @State private var showPassword = false
     @State private var isHovered = false
     @State private var showDeleteConfirm = false
+    @State private var shareCopied = false
 
     private var groupColor: Color {
         if let group = dataService.data.groups.first(where: { $0.id == card.groupId }) {
@@ -883,6 +878,16 @@ struct CardItemView: View {
                     .clipShape(Capsule())
                 }
                 if isHovered {
+                    if isShareableTarget {
+                        Button(action: copySharingText) {
+                            Image(systemName: shareCopied ? "checkmark" : "square.and.arrow.up")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(shareCopied ? .green : .secondary)
+                                .frame(width: 18, height: 18)
+                        }
+                        .buttonStyle(.plain)
+                        .help(shareCopied ? "已复制到剪贴板" : "复制条目信息以供分享")
+                    }
                     Button(action: onEdit) {
                         Image(systemName: "pencil")
                             .font(.system(size: 11))
@@ -981,6 +986,26 @@ struct CardItemView: View {
             Text("确定要删除「\(card.name)」吗？此操作不可恢复。")
         }
     }
+
+    private func copySharingText() {
+        let isApplication = LaunchTarget.isApplication(card.url)
+        let sharingText = card.sharingText(
+            groupName: cardGroupName,
+            targetLabel: isApplication ? "APP" : "地址",
+            targetValue: isApplication
+                ? LaunchTarget.displayName(for: card.url, dataService: dataService)
+                : card.url
+        )
+        Clipboard.copy(sharingText)
+        shareCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            shareCopied = false
+        }
+    }
+
+    private var isShareableTarget: Bool {
+        LaunchTarget.isWebAddress(card.url) || LaunchTarget.isApplication(card.url)
+    }
 }
 
 struct CardFieldRow: View {
@@ -1068,6 +1093,8 @@ struct SettingsView: View {
     @State private var showMigrationSheet = false
     @AppStorage(CredentialPanelPreferences.isEnabledKey)
     private var credentialPanelEnabled = true
+    @AppStorage(PasswordInputPreferences.forcesRomanInputKey)
+    private var forcesRomanPasswordInput = false
     @State private var autoDismissSecondsText = String(CredentialPanelPreferences.autoDismissSeconds)
 
     var body: some View {
@@ -1209,6 +1236,33 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                // ── 密码输入 ──
+                SectionHeader(title: "密码输入")
+
+                HStack(spacing: 14) {
+                    Image(systemName: "character.cursor.ibeam")
+                        .font(.system(size: 25))
+                        .foregroundColor(.blue)
+                        .frame(width: 34)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("密码框始终使用英文输入")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("开启后，输入密码时自动使用英文键盘，仍可输入数字和符号")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: $forcesRomanPasswordInput)
+                        .labelsHidden()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
 
                 Divider().padding(.horizontal, 20)
 

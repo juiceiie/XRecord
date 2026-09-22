@@ -1091,6 +1091,7 @@ struct SettingsView: View {
     @State private var selectedPage: SettingsPage = .general
     @State private var preferredBrowserPath = PreferredBrowserStore.applicationPath
     @State private var showMigrationSheet = false
+    @StateObject private var launchAtLoginService = LaunchAtLoginService()
     @AppStorage(CredentialPanelPreferences.isEnabledKey)
     private var credentialPanelEnabled = true
     @AppStorage(PasswordInputPreferences.forcesRomanInputKey)
@@ -1157,6 +1158,21 @@ struct SettingsView: View {
                 onSave: { dataService.setMigrationPassphrase($0) }
             )
         }
+        .alert(
+            "无法更改开机启动设置",
+            isPresented: Binding(
+                get: { launchAtLoginService.errorMessage != nil },
+                set: { if !$0 { launchAtLoginService.clearError() } }
+            )
+        ) {
+            Button("确定") { launchAtLoginService.clearError() }
+        } message: {
+            Text(launchAtLoginService.errorMessage ?? "请稍后重试。")
+        }
+        .onAppear { launchAtLoginService.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            launchAtLoginService.refresh()
+        }
     }
 
     private var generalSettings: some View {
@@ -1183,6 +1199,58 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                     Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                // ── 启动 ──
+                SectionHeader(title: "启动")
+
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "power")
+                            .font(.system(size: 25))
+                            .foregroundColor(.blue)
+                            .frame(width: 34)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("开机自动启动 XRecord")
+                                .font(.system(size: 13, weight: .medium))
+                            Text("登录 Mac 后自动运行 XRecord")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: { launchAtLoginService.isEnabled },
+                                set: { launchAtLoginService.setEnabled($0) }
+                            )
+                        )
+                        .labelsHidden()
+                    }
+
+                    if launchAtLoginService.requiresApproval {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text("需要在系统设置的登录项中允许 XRecord")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            Button("打开系统设置") {
+                                launchAtLoginService.openSystemSettings()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        .padding(.leading, 48)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)

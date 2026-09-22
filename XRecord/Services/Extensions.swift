@@ -1,5 +1,64 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
+
+// MARK: - 开机自动启动
+
+@MainActor
+final class LaunchAtLoginService: ObservableObject {
+    @Published private(set) var status: SMAppService.Status = .notRegistered
+    @Published private(set) var errorMessage: String?
+
+    private let service = SMAppService.mainApp
+
+    init() {
+        refresh()
+    }
+
+    var isEnabled: Bool {
+        status == .enabled || status == .requiresApproval
+    }
+
+    var requiresApproval: Bool {
+        status == .requiresApproval
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        errorMessage = nil
+
+        do {
+            if enabled {
+                guard status == .notRegistered || status == .notFound else {
+                    refresh()
+                    return
+                }
+                try service.register()
+            } else {
+                guard status != .notRegistered else {
+                    refresh()
+                    return
+                }
+                try service.unregister()
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        refresh()
+    }
+
+    func refresh() {
+        status = service.status
+    }
+
+    func openSystemSettings() {
+        SMAppService.openSystemSettingsLoginItems()
+    }
+
+    func clearError() {
+        errorMessage = nil
+    }
+}
 
 // MARK: - 剪贴板
 

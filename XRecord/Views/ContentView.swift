@@ -220,7 +220,6 @@ struct ContentView: View {
         .sheet(item: $viewingCard) { card in
             CardDetailView(
                 card: card,
-                dataService: dataService,
                 onClose: { viewingCard = nil },
                 onEdit: {
                     viewingCard = nil
@@ -235,7 +234,8 @@ struct ContentView: View {
                 onDelete: {
                     viewingCard = nil
                     dataService.moveCardToTrash(id: card.id)
-                }
+                },
+                onToggleFavorite: { dataService.toggleFavorite(cardID: card.id) }
             )
         }
         .alert("编辑内容尚未保存", isPresented: $showUnsavedChangesAlert) {
@@ -371,6 +371,11 @@ struct ContentView: View {
         }
     }
 
+    /// 三段式查看时取最新条目数据，收藏/编辑后能即时反映
+    private func liveCard(for card: Card) -> Card {
+        dataService.data.cards.first(where: { $0.id == card.id }) ?? card
+    }
+
     private var paneIsVisible: Bool {
         if case .empty = paneMode { return false }
         return true
@@ -459,12 +464,12 @@ struct ContentView: View {
 
             case .view(let card):
                 CardDetailView(
-                    card: card,
-                    dataService: dataService,
+                    card: liveCard(for: card),
                     embedded: true,
                     onClose: { paneMode = .empty },
-                    onEdit: { paneMode = .edit(card) },
-                    onDelete: { handleTrashCard(card) }
+                    onEdit: { paneMode = .edit(liveCard(for: card)) },
+                    onDelete: { handleTrashCard(liveCard(for: card)) },
+                    onToggleFavorite: { dataService.toggleFavorite(cardID: card.id) }
                 )
 
             case .add(let groupId, let kind):
@@ -805,12 +810,11 @@ struct GroupListView: View {
         VStack(spacing: 0) {
             // 顶部标题区
             HStack {
-                TextField("记事本", text: $dataService.data.appTitle)
+                Text(dataService.data.appTitle.isEmpty ? "记事本" : dataService.data.appTitle)
                     .scaledFont(size: 16, weight: .bold)
-                    .textFieldStyle(.plain)
-                    .onChange(of: dataService.data.appTitle) { _ in
-                        dataService.save()
-                    }
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(dataService.data.appTitle)
                 Spacer()
                 Button(action: {
                     editingGroup = nil  // 确保是新建模式
@@ -887,9 +891,23 @@ struct GroupListView: View {
 
             Divider()
 
-            // 设置
+            // 文件状态（靠左）+ 设置（靠右）
             HStack(spacing: 8) {
-                Spacer()
+                HStack(spacing: 4) {
+                    if dataService.fileAvailability == .downloading {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else {
+                        Image(systemName: dataService.fileAvailability.iconName)
+                    }
+                    Text(dataService.fileAvailability.shortDescription)
+                        .lineLimit(1)
+                }
+                .scaledFont(size: 10)
+                .foregroundColor(dataService.fileAvailability.tintColor)
+                .help(dataService.fileAvailability.description)
+
+                Spacer(minLength: 8)
 
                 Button(action: { showSettings = true }) {
                     Image(systemName: "gearshape")
@@ -1964,15 +1982,20 @@ struct CardFieldRow: View {
 
 struct CardDetailView: View {
     let card: Card
-    let dataService: DataService
     var embedded: Bool = false
     let onClose: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    var onToggleFavorite: (() -> Void)? = nil
 
+    @EnvironmentObject var dataService: DataService
     @State private var showPassword = false
     @State private var revealedCustomFieldIDs: Set<String> = []
     @State private var showDeleteConfirm = false
+
+    private var isFavorited: Bool {
+        dataService.data.cards.first(where: { $0.id == card.id })?.isFavorited ?? card.isFavorited
+    }
 
     private var group: Group? {
         dataService.data.groups.first { $0.id == card.groupId }
@@ -1996,20 +2019,12 @@ struct CardDetailView: View {
                     .scaledFont(size: 16, weight: .semibold)
                     .lineLimit(1)
 
-                if card.isFavorited {
-                    Image(systemName: "star.fill")
-                        .scaledFont(size: 12)
-                        .foregroundColor(.yellow)
-                }
-
                 Spacer()
 
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .scaledFont(size: 13, weight: .medium)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
+                // 操作统一放在右上角
+                headerActionButton(icon: "pencil", help: "编辑", action: onEdit)
+                headerActionButton(icon: "trash", help: "删除", action: { showDeleteConfirm = true })
+                headerActionButton(icon: "xmark", help: "关闭", action: onClose)
             }
             .padding(.horizontal, 20)
             .padding(.top, 18)
@@ -2065,25 +2080,20 @@ struct CardDetailView: View {
             Divider()
 
             HStack(spacing: 10) {
-                Button(role: .destructive, action: { showDeleteConfirm = true }) {
-                    Label("删除", systemImage: "trash")
-                        .scaledFont(size: 13)
+                Button(action: { onToggleFavorite?() }) {
+                    Image(systemName: isFavorited ? "star.fill" : "star")
+                        .scaledFont(size: 16, weight: .medium)
+                        .foregroundColor(isFavorited ? .yellow : .secondary)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.bordered)
-
-                Button(action: onEdit) {
-                    Label("编辑", systemImage: "pencil")
-                        .scaledFont(size: 13)
-                }
-                .buttonStyle(.bordered)
+                .buttonStyle(.plain)
+                .help(isFavorited ? "取消收藏" : "收藏")
 
                 Spacer()
-
-                Button("关闭", action: onClose)
-                    .buttonStyle(.borderedProminent)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
         }
         .frame(width: embedded ? nil : 460, height: embedded ? nil : 440)
         .frame(maxWidth: embedded ? .infinity : nil, maxHeight: embedded ? .infinity : nil)
@@ -2094,6 +2104,18 @@ struct CardDetailView: View {
             Text("确定要将「\(card.name)」移入回收站吗？之后可从回收站恢复。")
         }
         .appFontSizeScaled()
+    }
+
+    private func headerActionButton(icon: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .scaledFont(size: 13, weight: .medium)
+                .foregroundColor(.secondary)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private func field(label: String, value: String, copyable: Bool = true) -> some View {
@@ -2239,9 +2261,19 @@ struct CardDetailView: View {
 private enum SettingsPage: String, CaseIterable, Identifiable {
     case general = "通用"
     case appearance = "外观"
+    case behavior = "行为"
     case shortcuts = "快捷键"
 
     var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .general: return "gearshape"
+        case .appearance: return "paintbrush"
+        case .behavior: return "slider.horizontal.3"
+        case .shortcuts: return "keyboard"
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -2301,34 +2333,42 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+            .frame(height: 56)
 
             Divider()
 
-            Picker("设置页面", selection: $selectedPage) {
-                ForEach(SettingsPage.allCases) { page in
-                    Text(page.rawValue).tag(page)
+            HStack(spacing: 0) {
+                // 左侧导航（与主界面一致的浅灰底）
+                VStack(spacing: 2) {
+                    ForEach(SettingsPage.allCases) { page in
+                        settingsSidebarRow(page)
+                    }
+                    Spacer(minLength: 0)
                 }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+                .padding(8)
+                .frame(width: 168)
+                .background(Color.paneSidebarBackground)
 
-            Divider()
+                Divider()
 
-            VStack(spacing: 0) {
-                switch selectedPage {
-                case .general:
-                    generalSettings
-                case .appearance:
-                    appearanceSettings
-                case .shortcuts:
-                    ShortcutSettingsView()
+                // 右侧内容（白底）
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        switch selectedPage {
+                        case .general:
+                            generalSettings
+                        case .appearance:
+                            appearanceSettings
+                        case .behavior:
+                            behaviorSettings
+                        case .shortcuts:
+                            ShortcutSettingsView()
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.paneDetailBackground)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
 
@@ -2338,9 +2378,9 @@ struct SettingsView: View {
                     .buttonStyle(.borderedProminent)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
         }
-        .frame(width: 500, height: 480)
+        .frame(width: 720, height: 520)
         .sheet(isPresented: $showBindFile) {
             BindFileView(isPresented: $showBindFile)
         }
@@ -2368,9 +2408,29 @@ struct SettingsView: View {
         }
     }
 
+    private func settingsSidebarRow(_ page: SettingsPage) -> some View {
+        let isSelected = selectedPage == page
+        return HStack(spacing: 10) {
+            Image(systemName: page.icon)
+                .scaledFont(size: 12)
+                .foregroundColor(isSelected ? .blue : .secondary)
+                .frame(width: 16)
+            Text(page.rawValue)
+                .scaledFont(size: 13)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.blue.opacity(0.12) : Color.clear)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .onTapGesture { selectedPage = page }
+    }
+
     private var appearanceSettings: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
 
                 // ── 条目展示 ──
                 SectionHeader(title: "条目展示")
@@ -2484,13 +2544,11 @@ struct SettingsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
-            }
         }
     }
 
     private var generalSettings: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
 
                 // ── 关于 ──
                 SectionHeader(title: "关于")
@@ -2518,6 +2576,38 @@ struct SettingsView: View {
 
                 Divider().padding(.horizontal, 20)
 
+                // ── 笔记本 ──
+                SectionHeader(title: "笔记本")
+
+                HStack(spacing: 14) {
+                    Image(systemName: "book.closed")
+                        .scaledFont(size: 25)
+                        .foregroundColor(.blue)
+                        .frame(width: 34)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("笔记本名称")
+                            .scaledFont(size: 13, weight: .medium)
+                        Text("显示在主界面左上角")
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    TextField("记事本", text: $dataService.data.appTitle)
+                        .textFieldStyle(.roundedBorder)
+                        .scaledFont(size: 13)
+                        .frame(width: 180)
+                        .onChange(of: dataService.data.appTitle) { _ in
+                            dataService.save()
+                        }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
                 // ── 数据文件 ──
                 SectionHeader(title: "数据文件")
 
@@ -2535,17 +2625,18 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
+
                         HStack(spacing: 5) {
                             if dataService.fileAvailability == .downloading {
                                 ProgressView()
                                     .controlSize(.mini)
                             } else {
-                                Image(systemName: fileAvailabilityIcon)
+                                Image(systemName: dataService.fileAvailability.iconName)
                             }
                             Text(dataService.fileAvailability.description)
                         }
                         .scaledFont(size: 10)
-                        .foregroundColor(fileAvailabilityColor)
+                        .foregroundColor(dataService.fileAvailability.tintColor)
 
                         if let conflictNotice = dataService.conflictNotice {
                             Label(conflictNotice, systemImage: "exclamationmark.triangle.fill")
@@ -2610,123 +2701,6 @@ struct SettingsView: View {
                         }
                         .padding(.leading, 48)
                     }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
-
-                Divider().padding(.horizontal, 20)
-
-                // ── 凭据浮窗 ──
-                SectionHeader(title: "凭据浮窗")
-
-                HStack(spacing: 14) {
-                    Image(systemName: "rectangle.on.rectangle")
-                        .scaledFont(size: 25)
-                        .foregroundColor(.blue)
-                        .frame(width: 34)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("打开目标后显示凭据浮窗")
-                            .scaledFont(size: 13, weight: .medium)
-                        Text("作为总开关；还会遵循每个条目的独立设置")
-                            .scaledFont(size: 11)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: $credentialPanelEnabled)
-                        .labelsHidden()
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
-
-                HStack(spacing: 8) {
-                    Text("浮窗未使用")
-                        .scaledFont(size: 13)
-                    TextField("", text: $autoDismissSecondsText)
-                        .textFieldStyle(.roundedBorder)
-                        .scaledFont(size: 13)
-                        .multilineTextAlignment(.center)
-                        .frame(width: 56)
-                        .onChange(of: autoDismissSecondsText) { newValue in
-                            let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-                            guard !trimmed.isEmpty, let seconds = Int(trimmed) else { return }
-                            CredentialPanelPreferences.setAutoDismissSeconds(seconds)
-                        }
-                    Text("秒后自动消失")
-                        .scaledFont(size: 13)
-                    Text("（-1 表示不消失）")
-                        .scaledFont(size: 11)
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 14)
-
-                Divider().padding(.horizontal, 20)
-
-                // ── 密码输入 ──
-                SectionHeader(title: "密码输入")
-
-                HStack(spacing: 14) {
-                    Image(systemName: "character.cursor.ibeam")
-                        .scaledFont(size: 25)
-                        .foregroundColor(.blue)
-                        .frame(width: 34)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("密码框始终使用英文输入")
-                            .scaledFont(size: 13, weight: .medium)
-                        Text("开启后，输入密码时自动使用英文键盘，仍可输入数字和符号")
-                            .scaledFont(size: 11)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: $forcesRomanPasswordInput)
-                        .labelsHidden()
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
-
-                Divider().padding(.horizontal, 20)
-
-                // ── 链接打开方式 ──
-                SectionHeader(title: "链接打开方式")
-
-                HStack(spacing: 12) {
-                    Image(nsImage: preferredBrowserIcon)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 34, height: 34)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(preferredBrowserName)
-                            .scaledFont(size: 13, weight: .medium)
-                        Text(preferredBrowserDescription)
-                            .scaledFont(size: 11)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-
-                    Spacer(minLength: 12)
-
-                    if preferredBrowserPath != nil {
-                        Button(action: useSystemDefaultBrowser) {
-                            Image(systemName: "arrow.uturn.backward")
-                        }
-                        .buttonStyle(.bordered)
-                        .help("恢复系统默认浏览器")
-                    }
-
-                    Button(action: selectBrowser) {
-                        Label("选择", systemImage: "folder")
-                            .scaledFont(size: 12)
-                    }
-                    .buttonStyle(.bordered)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
@@ -2829,32 +2803,132 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
+        }
+    }
+
+    private var behaviorSettings: some View {
+        VStack(alignment: .leading, spacing: 0) {
+
+            // ── 凭据浮窗 ──
+            SectionHeader(title: "凭据浮窗")
+
+            HStack(spacing: 14) {
+                Image(systemName: "rectangle.on.rectangle")
+                    .scaledFont(size: 25)
+                    .foregroundColor(.blue)
+                    .frame(width: 34)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("打开目标后显示凭据浮窗")
+                        .scaledFont(size: 13, weight: .medium)
+                    Text("作为总开关；还会遵循每个条目的独立设置")
+                        .scaledFont(size: 11)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Toggle("", isOn: $credentialPanelEnabled)
+                    .labelsHidden()
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            HStack(spacing: 8) {
+                Text("浮窗未使用")
+                    .scaledFont(size: 13)
+                TextField("", text: $autoDismissSecondsText)
+                    .textFieldStyle(.roundedBorder)
+                    .scaledFont(size: 13)
+                    .multilineTextAlignment(.center)
+                    .frame(width: 56)
+                    .onChange(of: autoDismissSecondsText) { newValue in
+                        let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty, let seconds = Int(trimmed) else { return }
+                        CredentialPanelPreferences.setAutoDismissSeconds(seconds)
+                    }
+                Text("秒后自动消失")
+                    .scaledFont(size: 13)
+                Text("（-1 表示不消失）")
+                    .scaledFont(size: 11)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 14)
+
+            Divider().padding(.horizontal, 20)
+
+            // ── 密码输入 ──
+            SectionHeader(title: "密码输入")
+
+            HStack(spacing: 14) {
+                Image(systemName: "character.cursor.ibeam")
+                    .scaledFont(size: 25)
+                    .foregroundColor(.blue)
+                    .frame(width: 34)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("密码框始终使用英文输入")
+                        .scaledFont(size: 13, weight: .medium)
+                    Text("开启后，输入密码时自动使用英文键盘，仍可输入数字和符号")
+                        .scaledFont(size: 11)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Toggle("", isOn: $forcesRomanPasswordInput)
+                    .labelsHidden()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider().padding(.horizontal, 20)
+
+            // ── 链接打开方式 ──
+            SectionHeader(title: "链接打开方式")
+
+            HStack(spacing: 12) {
+                Image(nsImage: preferredBrowserIcon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 34, height: 34)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(preferredBrowserName)
+                        .scaledFont(size: 13, weight: .medium)
+                    Text(preferredBrowserDescription)
+                        .scaledFont(size: 11)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 12)
+
+                if preferredBrowserPath != nil {
+                    Button(action: useSystemDefaultBrowser) {
+                        Image(systemName: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(.bordered)
+                    .help("恢复系统默认浏览器")
+                }
+
+                Button(action: selectBrowser) {
+                    Label("选择", systemImage: "folder")
+                        .scaledFont(size: 12)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
         }
     }
 
     private var preferredBrowserName: String {
         guard let path = preferredBrowserPath else { return "系统默认浏览器" }
         return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-    }
-
-    private var fileAvailabilityIcon: String {
-        switch dataService.fileAvailability {
-        case .unbound: return "questionmark.circle"
-        case .local: return "checkmark.circle.fill"
-        case .iCloudAvailable: return "checkmark.icloud.fill"
-        case .downloading: return "icloud.and.arrow.down"
-        case .unavailable: return "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var fileAvailabilityColor: Color {
-        switch dataService.fileAvailability {
-        case .unavailable: return .orange
-        case .downloading: return .blue
-        case .unbound: return .secondary
-        case .local, .iCloudAvailable: return .green
-        }
     }
 
     private var preferredBrowserDescription: String {

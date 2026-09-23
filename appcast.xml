@@ -3,6 +3,24 @@
     <channel>
         <title>XRecord</title>
         <item>
+            <title>1.5.1</title>
+            <pubDate>Wed, 23 Sep 2026 23:33:47 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>21</sparkle:version>
+            <sparkle:shortVersionString>1.5.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.5.1
+
+- 🎨 重构设置界面：改为左侧导航 + 右侧内容布局，与主界面风格一致。
+- 🗂️ 重新整理设置选项：通用 / 外观 / 行为 / 快捷键四个分区。
+- 📄 文件状态（本机可用 / iCloud 已同步 / 下载中 / 不可用）显示在主界面左下角与设置的数据文件处。
+- ✏️ 笔记本名称改为在设置中修改，主界面左上角只读展示。
+- 🪟 详情页操作统一：编辑、删除、关闭移至右上角图标，底部只保留收藏星标（弹窗与三段式一致）。
+- 同时支持 Apple 芯片与 Intel Mac。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.5.1/XRecord-v1.5.1.dmg" length="6576944" type="application/octet-stream" sparkle:edSignature="POldtlc0FjFC3bJ8zAhBRckDIXiHZTJ7SEDNF54gW6FJpSH6O2oPjNDEF8bXAD6AhDw5CiquzTT6KD0NH0bWAQ=="/>
+        </item>
+        <item>
             <title>1.5.0</title>
             <pubDate>Wed, 23 Sep 2026 21:03:54 +0800</pubDate>
             <link>https://github.com/juiceiie/XRecord</link>

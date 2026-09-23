@@ -352,6 +352,40 @@ enum CardListStyle: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - 绑定文件状态展示
+
+extension BoundFileAvailability {
+    var iconName: String {
+        switch self {
+        case .unbound: return "questionmark.circle"
+        case .local: return "checkmark.circle.fill"
+        case .iCloudAvailable: return "checkmark.icloud.fill"
+        case .downloading: return "icloud.and.arrow.down"
+        case .unavailable: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .unavailable: return .orange
+        case .downloading: return .blue
+        case .unbound: return .secondary
+        case .local, .iCloudAvailable: return .green
+        }
+    }
+
+    /// 左下角状态栏使用的简短文案
+    var shortDescription: String {
+        switch self {
+        case .unbound: return "未绑定"
+        case .local: return "本机可用"
+        case .iCloudAvailable: return "iCloud 已同步"
+        case .downloading: return "下载中…"
+        case .unavailable: return "不可用"
+        }
+    }
+}
+
 // MARK: - 全局字体缩放
 
 private struct AppFontScaleEnvironmentKey: EnvironmentKey {

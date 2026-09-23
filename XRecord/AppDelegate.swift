@@ -114,6 +114,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(NSMenuItem(title: "关于 XRecord", action: #selector(showAbout), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem(title: "检查更新…", action: #selector(checkForUpdates), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
+        let settingsItem = NSMenuItem(title: "设置…", action: #selector(showSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        appMenu.addItem(settingsItem)
+        appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(NSMenuItem(title: "隐藏 XRecord", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
         appMenu.addItem(NSMenuItem(title: "隐藏其他应用", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: ""))
         appMenu.addItem(NSMenuItem(title: "显示所有应用", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: ""))
@@ -236,7 +240,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if window.isVisible {
             window.orderOut(nil)
+            enterAccessoryMode()
         } else {
+            enterRegularMode()
             window.deminiaturize(nil)
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -246,6 +252,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showMainWindow() {
         guard let window = mainWindow else { return }
         
+        enterRegularMode()
         window.deminiaturize(nil)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -253,6 +260,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func hideMainWindow() {
         mainWindow?.orderOut(nil)
+        enterAccessoryMode()
+    }
+
+    /// 显示主窗口时恢复 Dock 图标与顶部菜单栏
+    private func enterRegularMode() {
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+    }
+
+    /// 关闭主窗口后仅保留菜单栏图标，隐藏 Dock 图标
+    private func enterAccessoryMode() {
+        if NSApp.activationPolicy() != .accessory {
+            NSApp.setActivationPolicy(.accessory)
+        }
     }
 
     @objc func toggleFloating() {
@@ -345,8 +367,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 extension AppDelegate: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
-        // 用户点击关闭按钮时，不需要额外处理
-        // 点击 Dock 图标会通过 applicationShouldHandleReopen 重新打开
+        // 关闭主窗口后隐藏 Dock 图标，仅保留菜单栏常驻图标
+        // 点击菜单栏图标会通过 showMainWindow 恢复显示
+        enterAccessoryMode()
     }
 }
 

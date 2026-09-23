@@ -17,14 +17,13 @@ private enum QuickSearchMatcher {
         let normalizedQuery = normalize(query)
 
         if normalizedQuery.isEmpty {
-            return RecentLaunchStore.cards(in: data, limit: 5).enumerated().compactMap { index, card in
-                guard let group = groupByID[card.groupId] else { return nil }
-                return QuickSearchResult(card: card, group: group, score: index)
+            return RecentLaunchStore.cards(in: data, limit: 5).enumerated().map { index, card in
+                QuickSearchResult(card: card, group: group(for: card, in: groupByID), score: index)
             }
         }
 
-        return data.cards.compactMap { card in
-            guard let group = groupByID[card.groupId] else { return nil }
+        return data.cards.filter { !$0.isTrashed }.compactMap { card in
+            let group = group(for: card, in: groupByID)
             let variants = searchableVariants(group: group.name, card: card.name)
             let score = matchScore(query: normalizedQuery, variants: variants)
             guard normalizedQuery.isEmpty || score != nil else { return nil }
@@ -35,6 +34,11 @@ private enum QuickSearchMatcher {
             if $0.group.createdAt != $1.group.createdAt { return $0.group.createdAt < $1.group.createdAt }
             return $0.card.createdAt > $1.card.createdAt
         }
+    }
+
+    /// 分组可能已被删除（条目从回收站恢复后成为孤立条目），使用占位分组展示
+    private static func group(for card: Card, in groupByID: [String: Group]) -> Group {
+        groupByID[card.groupId] ?? Group(id: card.groupId, name: "未分类", colorHex: "#8E8E93")
     }
 
     private static func searchableVariants(group: String, card: String) -> Set<String> {
@@ -301,7 +305,7 @@ struct QuickSearchView: View {
                 )
 
                 Text("esc")
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .scaledFont(size: 11, weight: .medium, design: .rounded)
                     .foregroundColor(.secondary)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
@@ -349,6 +353,7 @@ struct QuickSearchView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: quickSearchCornerRadius, style: .continuous))
         .onChange(of: query) { _ in selectedIndex = 0 }
+        .appFontSizeScaled()
     }
 
     private func resultRow(_ result: QuickSearchResult, isSelected: Bool) -> some View {
@@ -357,19 +362,19 @@ struct QuickSearchView: View {
                 RoundedRectangle(cornerRadius: 7)
                     .fill(Color(hex: result.group.colorHex).opacity(isSelected ? 0.28 : 0.16))
                 Image(systemName: LaunchTarget.isApplication(result.card.url) ? "app" : "link")
-                    .font(.system(size: 14, weight: .medium))
+                    .scaledFont(size: 14, weight: .medium)
                     .foregroundColor(Color(hex: result.group.colorHex))
             }
             .frame(width: 36, height: 36)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(result.card.name)
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(size: 14, weight: .semibold)
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
                 Text(result.card.url.isEmpty ? "未设置地址" : LaunchTarget.displayName(for: result.card.url, dataService: dataService))
-                    .font(.system(size: 11))
+                    .scaledFont(size: 11)
                     .foregroundColor(result.card.url.isEmpty ? .orange : .secondary)
                     .lineLimit(1)
             }
@@ -381,7 +386,7 @@ struct QuickSearchView: View {
                     .fill(Color(hex: result.group.colorHex))
                     .frame(width: 6, height: 6)
                 Text(result.group.name)
-                    .font(.system(size: 11, weight: .medium))
+                    .scaledFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
@@ -392,7 +397,7 @@ struct QuickSearchView: View {
 
             if isSelected {
                 Image(systemName: "return")
-                    .font(.system(size: 11, weight: .medium))
+                    .scaledFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
             }
         }
@@ -408,10 +413,10 @@ struct QuickSearchView: View {
     private func emptyState(icon: String, text: String) -> some View {
         VStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 28, weight: .light))
+                .scaledFont(size: 28, weight: .light)
                 .foregroundColor(.secondary)
             Text(text)
-                .font(.system(size: 13))
+                .scaledFont(size: 13)
                 .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -429,11 +434,16 @@ struct QuickSearchView: View {
 }
 
 private struct QuickSearchField: NSViewRepresentable {
+    @Environment(\.appFontScale) private var fontScale
     @Binding var text: String
     let onMoveUp: () -> Void
     let onMoveDown: () -> Void
     let onSubmit: () -> Void
     let onCancel: () -> Void
+
+    private var fieldFont: NSFont {
+        .systemFont(ofSize: 19 * fontScale, weight: .regular)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -442,7 +452,7 @@ private struct QuickSearchField: NSViewRepresentable {
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
         field.placeholderString = "搜索分类或条目名称"
-        field.font = .systemFont(ofSize: 19, weight: .regular)
+        field.font = fieldFont
         field.isBezeled = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -458,6 +468,9 @@ private struct QuickSearchField: NSViewRepresentable {
         context.coordinator.parent = self
         if field.stringValue != text {
             field.stringValue = text
+        }
+        if field.font != fieldFont {
+            field.font = fieldFont
         }
     }
 

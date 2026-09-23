@@ -6,6 +6,15 @@ class UpdateServiceWrapper: ObservableObject {
     let service = UpdateService.shared
 }
 
+// MARK: - 第三段内容状态
+
+private enum CardPaneMode {
+    case empty
+    case view(Card)
+    case add(groupId: String, kind: CardKind)
+    case edit(Card)
+}
+
 struct ContentView: View {
     @EnvironmentObject var dataService: DataService
     @StateObject private var updateServiceWrapper: UpdateServiceWrapper
@@ -19,12 +28,27 @@ struct ContentView: View {
 
     private var updateService: UpdateService { updateServiceWrapper.service }
     @State private var selectedGroupId: String? = nil
+    @State private var showsFavorites = false
+    @State private var showsTrash = false
     @State private var showAddGroup = false
     @State private var editingGroup: Group? = nil
     @State private var searchText = ""
     @State private var showBindFile = false
     @State private var showSettings = false
     @State private var showMigrationPrompt = false
+    @State private var viewingCard: Card?
+    @AppStorage(PresentationPreferences.modeKey)
+    private var presentationModeRaw = CardPresentationMode.popup.rawValue
+    @AppStorage(PresentationPreferences.threeColumnWidthKey)
+    private var thirdColumnWidth: Double = 320
+    @State private var thirdColumnDragStart: Double?
+    @State private var paneMode: CardPaneMode = .empty
+
+    private var presentationMode: CardPresentationMode {
+        CardPresentationMode(rawValue: presentationModeRaw) ?? .popup
+    }
+
+    private var isThreeColumn: Bool { presentationMode == .threeColumn }
 
     var body: some View {
         ZStack {
@@ -40,10 +64,12 @@ struct ContentView: View {
                 // 左侧分组导航
                     GroupListView(
                         selectedGroupId: $selectedGroupId,
+                        showsFavorites: $showsFavorites,
+                        showsTrash: $showsTrash,
                         showAddGroup: $showAddGroup,
                         editingGroup: $editingGroup,
-                        showBindFile: $showBindFile,
-                        showSettings: $showSettings
+                        showSettings: $showSettings,
+                        background: isThreeColumn ? Color.paneSidebarBackground : Color(nsColor: .windowBackgroundColor)
                     )
                     .frame(width: 220)
 
@@ -52,24 +78,28 @@ struct ContentView: View {
                     // 右侧内容区
                     CardListView(
                         selectedGroupId: $selectedGroupId,
+                        showsFavorites: $showsFavorites,
+                        showsTrash: $showsTrash,
                         searchText: $searchText,
-                        onPrepareAddCard: { groupId in
-                            cardEditWindowPresenter.present(
-                                dataService: dataService,
-                                editingCard: nil,
-                                groupId: groupId
-                            )
-                        },
-                        onEditCard: { card in
-                            cardEditWindowPresenter.present(
-                                dataService: dataService,
-                                editingCard: card,
-                                groupId: card.groupId
-                            )
-                        }
+                        selectedCardId: paneSelectedCardId,
+                        onViewCard: { handleViewCard($0) },
+                        onPrepareAddCard: { groupId, kind in handleAddCard(groupId: groupId, kind: kind) },
+                        onTrashCard: { handleTrashCard($0) },
+                        onEditCard: { handleEditCard($0) },
+                        background: isThreeColumn ? Color.paneListBackground : Color(nsColor: .controlBackgroundColor)
                     )
+
+                    // 第三段：详情栏（仅三段式模式，有内容时从右侧滑出）
+                    if isThreeColumn && paneIsVisible {
+                        paneResizeHandle
+                            .transition(.move(edge: .trailing))
+                        cardDetailPane
+                            .frame(width: CGFloat(thirdColumnWidth))
+                            .transition(.move(edge: .trailing))
+                    }
                 }
                 .frame(minWidth: 700, minHeight: 450)
+                .animation(.easeInOut(duration: 0.22), value: paneIsVisible)
                 .onReceive(NotificationCenter.default.publisher(for: .openAddGroup)) { _ in
                     showAddGroup = true
                 }
@@ -78,16 +108,22 @@ struct ContentView: View {
                     let targetGroupId = requestedGroupId ?? selectedGroupId
                     guard let targetGroup = dataService.data.groups.first(where: { $0.id == targetGroupId }) else { return }
                     selectedGroupId = targetGroup.id
-                    cardEditWindowPresenter.present(
-                        dataService: dataService,
-                        editingCard: nil,
-                        groupId: targetGroup.id
-                    )
+                    showsFavorites = false
+                    showsTrash = false
+                    handleAddCard(groupId: targetGroup.id, kind: .standard)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .selectGroup)) { notification in
                     guard let groupId = notification.object as? String,
                           dataService.data.groups.contains(where: { $0.id == groupId }) else { return }
                     selectedGroupId = groupId
+                    showsFavorites = false
+                    showsTrash = false
+                }
+                .onChange(of: dataService.data.cards) { cards in
+                    clearPaneIfCardRemoved(cards)
+                }
+                .onChange(of: dataService.trashedCount) { _ in
+                    clearPaneIfCardRemoved(dataService.data.cards)
                 }
                 .sheet(isPresented: $showAddGroup) {
                     GroupEditView(
@@ -108,6 +144,15 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
             showSettings = true
         }
+        .background(
+            WindowAccessor { window in
+                // 三段式模式需要更宽的最小窗口，保证三栏都可用
+                let minWidth: CGFloat = isThreeColumn ? 900 : 700
+                if window.minSize.width != minWidth {
+                    window.minSize = NSSize(width: minWidth, height: 450)
+                }
+            }
+        )
         .sheet(isPresented: $showBindFile) {
             BindFileView(isPresented: $showBindFile)
         }
@@ -125,6 +170,24 @@ struct ContentView: View {
                 cancelButtonTitle: "以后再说"
             )
         }
+        .sheet(item: $viewingCard) { card in
+            CardDetailView(
+                card: card,
+                dataService: dataService,
+                onClose: { viewingCard = nil },
+                onEdit: {
+                    viewingCard = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        cardEditWindowPresenter.present(
+                            dataService: dataService,
+                            editingCard: card,
+                            groupId: card.groupId
+                        )
+                    }
+                }
+            )
+        }
+        .appFontSizeScaled()
     }
 
     /// 首次绑定或老版本升级后，提醒用户设置迁移口令（只提醒一次）
@@ -139,6 +202,171 @@ struct ContentView: View {
             showMigrationPrompt = true
         }
     }
+
+    // MARK: - 条目操作入口（按模式分流）
+
+    private func handleViewCard(_ card: Card) {
+        if isThreeColumn {
+            paneMode = .view(card)
+        } else {
+            viewingCard = card
+        }
+    }
+
+    private func handleEditCard(_ card: Card) {
+        if isThreeColumn {
+            paneMode = .edit(card)
+        } else {
+            cardEditWindowPresenter.present(
+                dataService: dataService,
+                editingCard: card,
+                groupId: card.groupId
+            )
+        }
+    }
+
+    private func handleAddCard(groupId: String, kind: CardKind) {
+        if isThreeColumn {
+            paneMode = .add(groupId: groupId, kind: kind)
+        } else {
+            cardEditWindowPresenter.present(
+                dataService: dataService,
+                editingCard: nil,
+                groupId: groupId,
+                kind: kind
+            )
+        }
+    }
+
+    private func handleTrashCard(_ card: Card) {
+        dataService.moveCardToTrash(id: card.id)
+        // 若该条目正显示在第三段，则一并清空
+        if paneSelectedCardId == card.id {
+            paneMode = .empty
+        }
+    }
+
+    // MARK: - 第三段（详情栏）
+
+    private var paneSelectedCardId: String? {
+        switch paneMode {
+        case .view(let card), .edit(let card):
+            return card.id
+        default:
+            return nil
+        }
+    }
+
+    private var paneIsVisible: Bool {
+        if case .empty = paneMode { return false }
+        return true
+    }
+
+    private var paneDismissBinding: Binding<Bool> {
+        Binding(
+            get: {
+                if case .empty = paneMode { return false }
+                return true
+            },
+            set: { newValue in
+                guard !newValue else { return }
+                // 保存后 onSaved 会切到查看模式，此时不重置
+                if case .view = paneMode { return }
+                paneMode = .empty
+            }
+        )
+    }
+
+    private func clearPaneIfCardRemoved(_ cards: [Card]) {
+        switch paneMode {
+        case .view(let card), .edit(let card):
+            if !cards.contains(where: { $0.id == card.id && !$0.isTrashed }) {
+                paneMode = .empty
+            }
+        default:
+            break
+        }
+    }
+
+    /// 第三段左边缘的拖拽分隔条
+    private var paneResizeHandle: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1)
+            .frame(width: 8)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        if thirdColumnDragStart == nil {
+                            thirdColumnDragStart = thirdColumnWidth
+                        }
+                        let base = thirdColumnDragStart ?? thirdColumnWidth
+                        let proposed = base - Double(value.translation.width)
+                        thirdColumnWidth = min(max(proposed, 260), 420)
+                    }
+                    .onEnded { _ in
+                        thirdColumnDragStart = nil
+                    }
+            )
+    }
+
+    @ViewBuilder
+    private var cardDetailPane: some View {
+        SwiftUI.Group {
+            switch paneMode {
+            case .empty:
+                VStack(spacing: 12) {
+                    Image(systemName: "sidebar.right")
+                        .scaledFont(size: 36)
+                        .foregroundColor(.secondary.opacity(0.4))
+                    Text("选择条目查看详情")
+                        .scaledFont(size: 13)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            case .view(let card):
+                CardDetailView(
+                    card: card,
+                    dataService: dataService,
+                    embedded: true,
+                    onClose: { paneMode = .empty },
+                    onEdit: { paneMode = .edit(card) }
+                )
+
+            case .add(let groupId, let kind):
+                CardEditView(
+                    isPresented: paneDismissBinding,
+                    editingCard: nil,
+                    groupId: groupId,
+                    initialKind: kind,
+                    embedded: true,
+                    onSaved: { paneMode = .view($0) }
+                )
+                .id("add-\(groupId)-\(kind.rawValue)")
+
+            case .edit(let card):
+                CardEditView(
+                    isPresented: paneDismissBinding,
+                    editingCard: card,
+                    groupId: card.groupId,
+                    embedded: true,
+                    onSaved: { paneMode = .view($0) }
+                )
+                .id("edit-\(card.id)")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.paneDetailBackground)
+    }
 }
 
 // MARK: - 欢迎/首次使用界面
@@ -152,29 +380,29 @@ struct WelcomeView: View {
 
             // Logo
             Image(systemName: "lock.shield")
-                .font(.system(size: 80))
+                .scaledFont(size: 80)
                 .foregroundColor(.blue)
 
             VStack(spacing: 12) {
                 Text("欢迎使用 XRecord")
-                    .font(.system(size: 28, weight: .bold))
+                    .scaledFont(size: 28, weight: .bold)
 
                 Text("简洁优雅的账号密码管理工具")
-                    .font(.system(size: 16))
+                    .scaledFont(size: 16)
                     .foregroundColor(.secondary)
             }
 
             VStack(spacing: 16) {
                 Text("开始使用前，请先绑定一个数据文件")
-                    .font(.system(size: 14))
+                    .scaledFont(size: 14)
                     .foregroundColor(.secondary)
 
                 Button(action: { showBindFile = true }) {
                     HStack(spacing: 8) {
                         Image(systemName: "folder.badge.plus")
-                            .font(.system(size: 16))
+                            .scaledFont(size: 16)
                         Text("选择或创建数据文件")
-                            .font(.system(size: 15, weight: .medium))
+                            .scaledFont(size: 15, weight: .medium)
                     }
                     .padding(.horizontal, 24)
                     .padding(.vertical, 12)
@@ -187,10 +415,10 @@ struct WelcomeView: View {
 
             VStack(spacing: 8) {
                 Text("💡 数据将安全存储在本地文件中")
-                    .font(.system(size: 12))
+                    .scaledFont(size: 12)
                     .foregroundColor(.secondary)
                 Text("你可以随时更换数据文件的存储位置")
-                    .font(.system(size: 12))
+                    .scaledFont(size: 12)
                     .foregroundColor(.secondary)
             }
             .padding(.bottom, 30)
@@ -209,19 +437,19 @@ struct LockedView: View {
             Spacer()
 
             Image(systemName: "lock.fill")
-                .font(.system(size: 70))
+                .scaledFont(size: 70)
                 .foregroundColor(.orange)
 
             VStack(spacing: 10) {
                 Text("数据文件已锁定")
-                    .font(.system(size: 24, weight: .bold))
+                    .scaledFont(size: 24, weight: .bold)
                 Text("无法解密当前数据文件。为保护数据，编辑已暂时禁用，不会写回覆盖。")
-                    .font(.system(size: 14))
+                    .scaledFont(size: 14)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
                 Text(dataService.filePathDisplay)
-                    .font(.system(size: 11, design: .monospaced))
+                    .scaledFont(size: 11, design: .monospaced)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -257,11 +485,11 @@ struct BindFileView: View {
             // 标题栏
             HStack {
                 Text("绑定数据文件")
-                    .font(.system(size: 16, weight: .semibold))
+                    .scaledFont(size: 16, weight: .semibold)
                     Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .medium))
+                        .scaledFont(size: 13, weight: .medium)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -273,7 +501,7 @@ struct BindFileView: View {
 
             VStack(spacing: 16) {
                 Text("选择或创建一个 XRecord 密码本来存储你的数据")
-                    .font(.system(size: 13))
+                    .scaledFont(size: 13)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
@@ -281,11 +509,11 @@ struct BindFileView: View {
                 // 当前文件路径
                 VStack(alignment: .leading, spacing: 4) {
                     Text("当前文件")
-                        .font(.system(size: 12, weight: .medium))
+                        .scaledFont(size: 12, weight: .medium)
                         .foregroundColor(.secondary)
                     HStack {
                         Text(dataService.filePathDisplay)
-                            .font(.system(size: 12, design: .monospaced))
+                            .scaledFont(size: 12, design: .monospaced)
                             .foregroundColor(.primary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -306,17 +534,17 @@ struct BindFileView: View {
                     }) {
                         HStack {
                             Image(systemName: "folder")
-                                .font(.system(size: 22))
+                                .scaledFont(size: 22)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("📂 选择已有文件")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .scaledFont(size: 14, weight: .medium)
                                 Text("支持 .xrecord 密码本和已有的 .txt 数据文件")
-                                    .font(.system(size: 11))
+                                    .scaledFont(size: 11)
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 12))
+                                .scaledFont(size: 12)
                                 .foregroundColor(.secondary)
                         }
                         .padding(14)
@@ -331,17 +559,17 @@ struct BindFileView: View {
                     }) {
                         HStack {
                             Image(systemName: "doc.badge.plus")
-                                .font(.system(size: 22))
+                                .scaledFont(size: 22)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("📄 创建新文件")
-                                    .font(.system(size: 14, weight: .medium))
+                                    .scaledFont(size: 14, weight: .medium)
                                 Text("在指定位置创建新的 .xrecord 密码本")
-                                    .font(.system(size: 11))
+                                    .scaledFont(size: 11)
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 12))
+                                .scaledFont(size: 12)
                                 .foregroundColor(.secondary)
                         }
                         .padding(14)
@@ -372,17 +600,19 @@ struct BindFileView: View {
 struct GroupListView: View {
     @EnvironmentObject var dataService: DataService
     @Binding var selectedGroupId: String?
+    @Binding var showsFavorites: Bool
+    @Binding var showsTrash: Bool
     @Binding var showAddGroup: Bool
     @Binding var editingGroup: Group?
-    @Binding var showBindFile: Bool
     @Binding var showSettings: Bool
+    var background: Color = Color(nsColor: .windowBackgroundColor)
 
     var body: some View {
         VStack(spacing: 0) {
             // 顶部标题区
             HStack {
                 TextField("记事本", text: $dataService.data.appTitle)
-                    .font(.system(size: 16, weight: .bold))
+                    .scaledFont(size: 16, weight: .bold)
                     .textFieldStyle(.plain)
                     .onChange(of: dataService.data.appTitle) { _ in
                         dataService.save()
@@ -393,14 +623,14 @@ struct GroupListView: View {
                     showAddGroup = true
                 }) {
                     Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(size: 14, weight: .semibold)
                         .foregroundColor(.blue)
                 }
                 .buttonStyle(.plain)
                 .help("新建分组")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 14)
+            .frame(height: 56)
 
             Divider()
 
@@ -409,9 +639,24 @@ struct GroupListView: View {
                 LazyVStack(spacing: 2) {
                     // 全部选项
                     AllGroupsRowView(
-                        isSelected: selectedGroupId == nil,
-                        totalCount: dataService.data.cards.count,
-                        onSelect: { selectedGroupId = nil }
+                        isSelected: selectedGroupId == nil && !showsFavorites && !showsTrash,
+                        totalCount: dataService.activeCards.count,
+                        onSelect: {
+                            selectedGroupId = nil
+                            showsFavorites = false
+                            showsTrash = false
+                        }
+                    )
+
+                    // 收藏夹
+                    FavoritesRowView(
+                        isSelected: showsFavorites,
+                        count: dataService.favoriteCount,
+                        onSelect: {
+                            selectedGroupId = nil
+                            showsFavorites = true
+                            showsTrash = false
+                        }
                     )
 
                     Divider()
@@ -422,7 +667,11 @@ struct GroupListView: View {
                             group: group,
                             isSelected: selectedGroupId == group.id,
                             count: dataService.groupCount(for: group.id),
-                            onSelect: { selectedGroupId = group.id },
+                            onSelect: {
+                                selectedGroupId = group.id
+                                showsFavorites = false
+                                showsTrash = false
+                            },
                             onEdit: {
                                 editingGroup = group
                                 showAddGroup = true
@@ -445,48 +694,37 @@ struct GroupListView: View {
                 .padding(.vertical, 8)
             }
 
+            // 回收站
+            TrashRowView(
+                isSelected: showsTrash,
+                count: dataService.trashedCount,
+                onSelect: {
+                    selectedGroupId = nil
+                    showsFavorites = false
+                    showsTrash = true
+                }
+            )
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+
             Divider()
 
-            // 底部操作区
-            VStack(spacing: 6) {
-                HStack(spacing: 8) {
-                    Button(action: { showBindFile = true }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "doc.text")
-                                .font(.system(size: 11))
-                                .foregroundColor(.blue)
-                            Text("绑定文件")
-                                .font(.system(size: 11))
-                                .foregroundColor(.blue)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.blue.opacity(0.1))
-                        .clipShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
+            // 设置
+            HStack(spacing: 8) {
+                Spacer()
 
-                    Spacer()
-
-                    Button(action: { showSettings = true }) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("设置")
+                Button(action: { showSettings = true }) {
+                    Image(systemName: "gearshape")
+                        .scaledFont(size: 13)
+                        .foregroundColor(.secondary)
                 }
-
-                Text(dataService.filePathDisplay)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                .buttonStyle(.plain)
+                .help("设置")
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(background)
     }
 }
 
@@ -508,13 +746,13 @@ struct GroupRowView: View {
                 .frame(width: 10, height: 10)
 
             Text(group.name)
-                .font(.system(size: 13))
+                .scaledFont(size: 13)
                 .lineLimit(1)
 
             Spacer()
 
             Text("\(count)")
-                .font(.system(size: 11))
+                .scaledFont(size: 11)
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -524,14 +762,14 @@ struct GroupRowView: View {
             if isHovered {
                 Button(action: onEdit) {
                     Image(systemName: "pencil")
-                        .font(.system(size: 10))
+                        .scaledFont(size: 10)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
 
                 Button(action: { showDeleteConfirm = true }) {
                     Image(systemName: "trash")
-                        .font(.system(size: 10))
+                        .scaledFont(size: 10)
                         .foregroundColor(.red.opacity(0.7))
                 }
                 .buttonStyle(.plain)
@@ -571,17 +809,17 @@ struct AllGroupsRowView: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "tray.full")
-                .font(.system(size: 11))
+                .scaledFont(size: 11)
                 .foregroundColor(.blue)
 
             Text("全部")
-                .font(.system(size: 13))
+                .scaledFont(size: 13)
                 .lineLimit(1)
 
             Spacer()
 
             Text("\(totalCount)")
-                .font(.system(size: 11))
+                .scaledFont(size: 11)
                 .foregroundColor(.secondary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -604,14 +842,111 @@ struct AllGroupsRowView: View {
     }
 }
 
+// MARK: - 收藏夹行
+
+struct FavoritesRowView: View {
+    let isSelected: Bool
+    let count: Int
+    let onSelect: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "star.fill")
+                .scaledFont(size: 11)
+                .foregroundColor(.yellow)
+
+            Text("收藏夹")
+                .scaledFont(size: 13)
+                .lineLimit(1)
+
+            Spacer()
+
+            Text("\(count)")
+                .scaledFont(size: 11)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.1))
+                .clipShape(Capsule())
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.yellow.opacity(0.14) : (isHovered ? Color.secondary.opacity(0.06) : Color.clear))
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.yellow.opacity(0.4) : Color.clear, lineWidth: 1)
+        )
+        .onTapGesture { onSelect() }
+        .onHover { hovering in isHovered = hovering }
+    }
+}
+
+// MARK: - 回收站行
+
+struct TrashRowView: View {
+    let isSelected: Bool
+    let count: Int
+    let onSelect: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "trash")
+                .scaledFont(size: 11)
+                .foregroundColor(.secondary)
+
+            Text("回收站")
+                .scaledFont(size: 13)
+                .lineLimit(1)
+
+            Spacer()
+
+            Text("\(count)")
+                .scaledFont(size: 11)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.secondary.opacity(0.1))
+                .clipShape(Capsule())
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.secondary.opacity(0.16) : (isHovered ? Color.secondary.opacity(0.06) : Color.clear))
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.secondary.opacity(0.35) : Color.clear, lineWidth: 1)
+        )
+        .onTapGesture { onSelect() }
+        .onHover { hovering in isHovered = hovering }
+    }
+}
+
 // MARK: - 右侧卡片列表
 
 struct CardListView: View {
     @EnvironmentObject var dataService: DataService
+    @State private var showEmptyTrashConfirm = false
     @Binding var selectedGroupId: String?
+    @Binding var showsFavorites: Bool
+    @Binding var showsTrash: Bool
     @Binding var searchText: String
-    var onPrepareAddCard: ((String) -> Void)? = nil
+    var selectedCardId: String? = nil
+    var onViewCard: ((Card) -> Void)? = nil
+    var onPrepareAddCard: ((String, CardKind) -> Void)? = nil
+    var onTrashCard: ((Card) -> Void)? = nil
     let onEditCard: (Card) -> Void
+    var background: Color = Color(nsColor: .controlBackgroundColor)
 
     var selectedGroup: Group? {
         dataService.data.groups.first { $0.id == selectedGroupId }
@@ -619,7 +954,21 @@ struct CardListView: View {
 
     // 全部视图的卡片（按创建时间降序）
     var allCardsSorted: [Card] {
-        let cards = dataService.data.cards
+        let cards = dataService.activeCards
+        if searchText.isEmpty { return cards.sorted { $0.createdAt > $1.createdAt } }
+
+        let q = searchText.lowercased()
+        return cards.filter {
+            $0.name.lowercased().contains(q) ||
+            $0.url.lowercased().contains(q) ||
+            $0.username.lowercased().contains(q) ||
+            $0.note.lowercased().contains(q)
+        }.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    // 收藏夹视图的卡片（按创建时间降序）
+    var favoriteCardsSorted: [Card] {
+        let cards = dataService.activeCards.filter { $0.isFavorited }
         if searchText.isEmpty { return cards.sorted { $0.createdAt > $1.createdAt } }
 
         let q = searchText.lowercased()
@@ -635,21 +984,37 @@ struct CardListView: View {
         VStack(spacing: 0) {
             // 顶部工具栏
             HStack(spacing: 12) {
-                if let group = selectedGroup {
+                if showsTrash {
+                    HStack(spacing: 6) {
+                        Image(systemName: "trash")
+                            .scaledFont(size: 12)
+                            .foregroundColor(.secondary)
+                        Text("回收站")
+                            .scaledFont(size: 15, weight: .semibold)
+                    }
+                } else if showsFavorites {
+                    HStack(spacing: 6) {
+                        Image(systemName: "star.fill")
+                            .scaledFont(size: 12)
+                            .foregroundColor(.yellow)
+                        Text("收藏夹")
+                            .scaledFont(size: 15, weight: .semibold)
+                    }
+                } else if let group = selectedGroup {
                     HStack(spacing: 6) {
                         Circle()
                             .fill(Color(hex: group.colorHex))
                             .frame(width: 10, height: 10)
                         Text(group.name)
-                            .font(.system(size: 15, weight: .semibold))
+                            .scaledFont(size: 15, weight: .semibold)
                     }
                 } else {
                     HStack(spacing: 6) {
                         Image(systemName: "tray.full")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.blue)
                         Text("全部记录")
-                            .font(.system(size: 15, weight: .semibold))
+                            .scaledFont(size: 15, weight: .semibold)
                     }
                 }
 
@@ -658,84 +1023,252 @@ struct CardListView: View {
                 // 搜索框
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 12))
+                        .scaledFont(size: 12)
                         .foregroundColor(.secondary)
                     TextField("搜索...", text: $searchText)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 13))
+                        .scaledFont(size: 13)
                         .frame(width: 160)
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .frame(height: 30)
                 .background(Color.secondary.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
 
-                if let selectedGroup {
-                    Button(action: {
-                        onPrepareAddCard?(selectedGroup.id)
-                    }) {
-                        Label("添加条目", systemImage: "plus")
-                            .font(.system(size: 13))
+                if showsTrash {
+                    if !dataService.trashedCards.isEmpty {
+                        Button(action: { showEmptyTrashConfirm = true }) {
+                            Label("清空回收站", systemImage: "trash.slash")
+                                .scaledFont(size: 13)
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(height: 30)
                     }
-                    .buttonStyle(.borderedProminent)
+                } else if let selectedGroup {
+                    Menu {
+                        Button {
+                            onPrepareAddCard?(selectedGroup.id, .standard)
+                        } label: {
+                            Label("标准条目", systemImage: "person.text.rectangle")
+                        }
+                        Button {
+                            onPrepareAddCard?(selectedGroup.id, .custom)
+                        } label: {
+                            Label("自定义条目", systemImage: "square.and.pencil")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .scaledFont(size: 13, weight: .semibold)
+                            .foregroundColor(.white)
+                            .frame(width: 30, height: 30)
+                            .background(Color(hex: selectedGroup.colorHex))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .frame(height: 56)
 
             Divider()
 
             // 卡片内容
-            if let gid = selectedGroupId {
+            if showsTrash {
+                TrashListView(searchText: searchText)
+            } else if showsFavorites {
+                // 收藏夹视图 - 跨分组的收藏条目
+                if favoriteCardsSorted.isEmpty {
+                    emptyState(icon: "star", text: "暂无收藏条目，点击条目右上角的星标即可收藏")
+                } else {
+                    cardsGrid(favoriteCardsSorted)
+                }
+            } else if let gid = selectedGroupId {
                 // 单个分组 - 支持拖拽排序的 List
                 GroupCardList(
                     groupId: gid,
                     cards: $dataService.data.cards,
                     searchText: searchText,
+                    selectedCardId: selectedCardId,
+                    onView: { card in
+                        onViewCard?(card)
+                    },
                     onEdit: { card in
                         onEditCard(card)
                     },
                     onDelete: { card in
-                        dataService.deleteCard(id: card.id)
+                        trash(card)
                     }
                 )
             } else {
                 // 全部视图 - 按创建时间降序的网格
                 if allCardsSorted.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "tray")
-                            .font(.system(size: 40))
-                            .foregroundColor(.secondary.opacity(0.4))
-                        Text("暂无条目，点击左侧新建分组和卡片")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    emptyState(icon: "tray", text: "暂无条目，点击左侧新建分组和卡片")
                 } else {
-                    ScrollView {
-                        LazyVGrid(columns: [
-                            GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 14)
-                        ], spacing: 14) {
-                            ForEach(allCardsSorted) { card in
-                                CardItemView(
-                                    card: card,
-                                    dataService: dataService,
-                                    onEdit: {
-                                        onEditCard(card)
-                                    },
-                                    onDelete: {
-                                        dataService.deleteCard(id: card.id)
-                                    },
-                                    showGroupName: true
-                                )
-                            }
-                        }
-                        .padding(20)
-                    }
+                    cardsGrid(allCardsSorted)
                 }
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(background)
+        .alert("清空回收站", isPresented: $showEmptyTrashConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("清空", role: .destructive) { dataService.emptyTrash() }
+        } message: {
+            Text("将永久删除回收站中的所有条目，此操作不可恢复。")
+        }
+    }
+
+    private func trash(_ card: Card) {
+        if let onTrashCard {
+            onTrashCard(card)
+        } else {
+            dataService.moveCardToTrash(id: card.id)
+        }
+    }
+
+    private func cardsGrid(_ cards: [Card]) -> some View {
+        ScrollView {
+            LazyVGrid(columns: [
+                GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 14)
+            ], spacing: 14) {
+                ForEach(cards) { card in
+                    CardItemView(
+                        card: card,
+                        dataService: dataService,
+                        isSelected: card.id == selectedCardId,
+                        onView: { onViewCard?(card) },
+                        onEdit: { onEditCard(card) },
+                        onDelete: { trash(card) },
+                        onToggleFavorite: { dataService.toggleFavorite(cardID: card.id) },
+                        showGroupName: true
+                    )
+                }
+            }
+            .padding(20)
+        }
+    }
+
+    private func emptyState(icon: String, text: String) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .scaledFont(size: 40)
+                .foregroundColor(.secondary.opacity(0.4))
+            Text(text)
+                .scaledFont(size: 14)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - 回收站列表
+
+struct TrashListView: View {
+    @EnvironmentObject var dataService: DataService
+    let searchText: String
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
+
+    private var filteredCards: [Card] {
+        let cards = dataService.trashedCards
+        guard !searchText.isEmpty else { return cards }
+
+        let q = searchText.lowercased()
+        return cards.filter {
+            $0.name.lowercased().contains(q) ||
+            $0.url.lowercased().contains(q) ||
+            $0.username.lowercased().contains(q) ||
+            $0.note.lowercased().contains(q)
+        }
+    }
+
+    var body: some View {
+        let cards = filteredCards
+        if cards.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: dataService.trashedCards.isEmpty ? "trash" : "magnifyingglass")
+                    .scaledFont(size: 40)
+                    .foregroundColor(.secondary.opacity(0.4))
+                Text(dataService.trashedCards.isEmpty ? "回收站是空的" : "没有找到匹配的条目")
+                    .scaledFont(size: 14)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(cards) { card in
+                        row(for: card)
+                    }
+                }
+                .padding(20)
+            }
+        }
+    }
+
+    private func row(for card: Card) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "doc.text")
+                .scaledFont(size: 18)
+                .foregroundColor(.secondary)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(card.name)
+                    .scaledFont(size: 14, weight: .medium)
+                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    if let group = dataService.data.groups.first(where: { $0.id == card.groupId }) {
+                        Circle()
+                            .fill(Color(hex: group.colorHex))
+                            .frame(width: 6, height: 6)
+                        Text(group.name)
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("未分类")
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let deletedAt = card.deletedAt {
+                        Text("· 删除于 \(Self.dateFormatter.string(from: deletedAt))")
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+
+            Spacer()
+
+            Button(action: { dataService.restoreCard(id: card.id) }) {
+                Label("恢复", systemImage: "arrow.uturn.backward")
+                    .scaledFont(size: 12)
+            }
+            .buttonStyle(.bordered)
+
+            Button(action: { dataService.permanentlyDeleteCard(id: card.id) }) {
+                Image(systemName: "trash")
+                    .scaledFont(size: 12)
+                    .foregroundColor(.red.opacity(0.8))
+            }
+            .buttonStyle(.bordered)
+            .help("彻底删除")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+        )
     }
 }
 
@@ -745,18 +1278,21 @@ struct GroupCardList: View {
     let groupId: String
     @Binding var cards: [Card]
     let searchText: String
+    let selectedCardId: String?
+    let onView: (Card) -> Void
     let onEdit: (Card) -> Void
     let onDelete: (Card) -> Void
 
     private var groupCards: Binding<[Card]> {
         Binding(
             get: {
-                cards.filter { $0.groupId == groupId }
+                cards.filter { $0.groupId == groupId && !$0.isTrashed }
             },
             set: { newCards in
-                // 保持其他分组的卡片不变，只更新当前分组的顺序
+                // 保持其他分组的卡片不变，只更新当前分组未删除卡片的顺序
                 let otherCards = cards.filter { $0.groupId != groupId }
-                cards = otherCards + newCards
+                let trashedCards = cards.filter { $0.groupId == groupId && $0.isTrashed }
+                cards = otherCards + newCards + trashedCards
             }
         )
     }
@@ -778,10 +1314,10 @@ struct GroupCardList: View {
         if filteredGroupCards.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "doc.text")
-                    .font(.system(size: 40))
+                    .scaledFont(size: 40)
                     .foregroundColor(.secondary.opacity(0.4))
                 Text("暂无条目，点击上方「添加条目」开始")
-                    .font(.system(size: 14))
+                    .scaledFont(size: 14)
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -794,8 +1330,11 @@ struct GroupCardList: View {
                         CardItemView(
                             card: card,
                             dataService: DataService.shared,
+                            isSelected: card.id == selectedCardId,
+                            onView: { onView(card) },
                             onEdit: { onEdit(card) },
-                            onDelete: { onDelete(card) }
+                            onDelete: { onDelete(card) },
+                            onToggleFavorite: { DataService.shared.toggleFavorite(cardID: card.id) }
                         )
                         .id(card.id)
                         .draggable(card.id)
@@ -835,11 +1374,15 @@ struct GroupCardList: View {
 struct CardItemView: View {
     let card: Card
     let dataService: DataService
+    var isSelected: Bool = false
+    let onView: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onToggleFavorite: () -> Void
     var showGroupName: Bool = false
 
     @State private var showPassword = false
+    @State private var revealedCustomFieldIDs: Set<String> = []
     @State private var isHovered = false
     @State private var showDeleteConfirm = false
     @State private var shareCopied = false
@@ -860,7 +1403,7 @@ struct CardItemView: View {
             // 卡片头部
             HStack {
                 Text(card.name)
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(size: 14, weight: .semibold)
                     .lineLimit(1)
                 Spacer()
                 if showGroupName, let groupName = cardGroupName {
@@ -869,7 +1412,7 @@ struct CardItemView: View {
                             .fill(groupColor)
                             .frame(width: 6, height: 6)
                         Text(groupName)
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                     .padding(.horizontal, 6)
@@ -881,7 +1424,7 @@ struct CardItemView: View {
                     if isShareableTarget {
                         Button(action: copySharingText) {
                             Image(systemName: shareCopied ? "checkmark" : "square.and.arrow.up")
-                                .font(.system(size: 11, weight: .medium))
+                                .scaledFont(size: 11, weight: .medium)
                                 .foregroundColor(shareCopied ? .green : .secondary)
                                 .frame(width: 18, height: 18)
                         }
@@ -890,19 +1433,29 @@ struct CardItemView: View {
                     }
                     Button(action: onEdit) {
                         Image(systemName: "pencil")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
                     .help("编辑")
                     Button(action: { showDeleteConfirm = true }) {
                         Image(systemName: "trash")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.red.opacity(0.7))
                     }
                     .buttonStyle(.plain)
                     .help("删除")
                 }
+
+                // 收藏星标（始终显示在右上角）
+                Button(action: onToggleFavorite) {
+                    Image(systemName: card.isFavorited ? "star.fill" : "star")
+                        .scaledFont(size: 12, weight: .medium)
+                        .foregroundColor(card.isFavorited ? .yellow : .secondary)
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .help(card.isFavorited ? "取消收藏" : "收藏")
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
@@ -921,35 +1474,52 @@ struct CardItemView: View {
                 )
             }
 
-            // 账号
-            if !card.username.isEmpty {
-                CardFieldRow(
-                    label: "账号",
-                    value: card.username,
-                    shortValue: card.username,
-                    isSecret: false
-                )
-            }
+            // 账号 / 密码（标准）或自定义小项
+            if card.isCustom {
+                ForEach(card.effectiveCustomFields) { customField in
+                    if !customField.value.isEmpty {
+                        CardFieldRow(
+                            label: customField.label.isEmpty ? "小项" : customField.label,
+                            value: customField.value,
+                            shortValue: customField.isSecretField
+                                ? String(repeating: "•", count: min(customField.value.count, 12))
+                                : customField.value,
+                            isSecret: customField.isSecretField,
+                            showSecret: customField.isSecretField
+                                ? revealedCustomFieldBinding(customField.id)
+                                : nil
+                        )
+                    }
+                }
+            } else {
+                if !card.username.isEmpty {
+                    CardFieldRow(
+                        label: "账号",
+                        value: card.username,
+                        shortValue: card.username,
+                        isSecret: false
+                    )
+                }
 
-            // 密码
-            if !card.password.isEmpty {
-                CardFieldRow(
-                    label: "密码",
-                    value: card.password,
-                    shortValue: showPassword ? card.password : String(repeating: "•", count: min(card.password.count, 12)),
-                    isSecret: true,
-                    showSecret: $showPassword
-                )
+                if !card.password.isEmpty {
+                    CardFieldRow(
+                        label: "密码",
+                        value: card.password,
+                        shortValue: showPassword ? card.password : String(repeating: "•", count: min(card.password.count, 12)),
+                        isSecret: true,
+                        showSecret: $showPassword
+                    )
+                }
             }
 
             // 备注
             if !card.note.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("备注")
-                        .font(.system(size: 10))
+                        .scaledFont(size: 10)
                         .foregroundColor(.secondary)
                     Text(card.note)
-                        .font(.system(size: 12))
+                        .scaledFont(size: 12)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
@@ -976,15 +1546,33 @@ struct CardItemView: View {
         .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 2)
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(groupColor.opacity(0.2), lineWidth: 1)
+                .stroke(
+                    isSelected ? Color.accentColor.opacity(0.9) : groupColor.opacity(0.2),
+                    lineWidth: isSelected ? 2 : 1
+                )
         )
+        .contentShape(RoundedRectangle(cornerRadius: 10))
+        .onTapGesture { onView() }
         .onHover { hovering in isHovered = hovering }
-        .alert("删除条目", isPresented: $showDeleteConfirm) {
+        .alert("移入回收站", isPresented: $showDeleteConfirm) {
             Button("取消", role: .cancel) {}
-            Button("删除", role: .destructive) { onDelete() }
+            Button("移入回收站", role: .destructive) { onDelete() }
         } message: {
-            Text("确定要删除「\(card.name)」吗？此操作不可恢复。")
+            Text("确定要将「\(card.name)」移入回收站吗？之后可从回收站恢复。")
         }
+    }
+
+    private func revealedCustomFieldBinding(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { revealedCustomFieldIDs.contains(id) },
+            set: { newValue in
+                if newValue {
+                    revealedCustomFieldIDs.insert(id)
+                } else {
+                    revealedCustomFieldIDs.remove(id)
+                }
+            }
+        )
     }
 
     private func copySharingText() {
@@ -1020,17 +1608,18 @@ struct CardFieldRow: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.system(size: 10))
+                .scaledFont(size: 10)
                 .foregroundColor(.secondary)
-                .frame(width: 34, alignment: .leading)
+                .lineLimit(1)
+                .frame(minWidth: 34, alignment: .leading)
 
             if isLaunchTarget {
                 Button(action: { LaunchTarget.open(value, cardID: launchCardID) }) {
                     HStack(spacing: 5) {
                         Image(systemName: LaunchTarget.isApplication(value) ? "app" : "safari")
-                            .font(.system(size: 10))
+                            .scaledFont(size: 10)
                         Text(shortValue)
-                            .font(.system(size: 12))
+                            .scaledFont(size: 12)
                             .lineLimit(1)
                     }
                     .foregroundColor(.blue)
@@ -1039,7 +1628,7 @@ struct CardFieldRow: View {
                 .help(value)
             } else {
                 Text(isSecret == true && (showSecret?.wrappedValue == false) ? shortValue : value)
-                    .font(.system(size: 12, design: .monospaced))
+                    .scaledFont(size: 12, design: .monospaced)
                     .foregroundColor(.primary)
                     .lineLimit(1)
             }
@@ -1049,7 +1638,7 @@ struct CardFieldRow: View {
             // 复制按钮
             Button(action: { copyToClipboard(value) }) {
                 Image(systemName: "doc.on.doc")
-                    .font(.system(size: 10))
+                    .scaledFont(size: 10)
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
@@ -1059,7 +1648,7 @@ struct CardFieldRow: View {
             if isSecret, let showBinding = showSecret {
                 Button(action: { showBinding.wrappedValue.toggle() }) {
                     Image(systemName: showBinding.wrappedValue ? "eye.slash" : "eye")
-                        .font(.system(size: 10))
+                        .scaledFont(size: 10)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1075,10 +1664,271 @@ struct CardFieldRow: View {
     }
 }
 
+// MARK: - 条目查看（只读）
+
+struct CardDetailView: View {
+    let card: Card
+    let dataService: DataService
+    var embedded: Bool = false
+    let onClose: () -> Void
+    let onEdit: () -> Void
+
+    @State private var showPassword = false
+    @State private var revealedCustomFieldIDs: Set<String> = []
+
+    private var group: Group? {
+        dataService.data.groups.first { $0.id == card.groupId }
+    }
+
+    private var groupColor: Color {
+        group.map { Color(hex: $0.colorHex) } ?? .gray
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 标题栏
+            HStack(spacing: 10) {
+                if group != nil {
+                    Circle()
+                        .fill(groupColor)
+                        .frame(width: 10, height: 10)
+                }
+
+                Text(card.name)
+                    .scaledFont(size: 16, weight: .semibold)
+                    .lineLimit(1)
+
+                if card.isFavorited {
+                    Image(systemName: "star.fill")
+                        .scaledFont(size: 12)
+                        .foregroundColor(.yellow)
+                }
+
+                Spacer()
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .scaledFont(size: 13, weight: .medium)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let group {
+                        field(label: "分组", value: group.name, copyable: false)
+                    }
+
+                    if !card.url.isEmpty {
+                        urlField
+                    }
+
+                    if card.isCustom {
+                        ForEach(card.effectiveCustomFields) { customField in
+                            if !customField.value.isEmpty {
+                                if customField.isSecretField {
+                                    secretField(
+                                        label: customField.label.isEmpty ? "小项" : customField.label,
+                                        value: customField.value,
+                                        revealed: revealedCustomFieldIDs.contains(customField.id),
+                                        toggle: { toggleCustomFieldReveal(customField.id) }
+                                    )
+                                } else {
+                                    field(
+                                        label: customField.label.isEmpty ? "小项" : customField.label,
+                                        value: customField.value
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        if !card.username.isEmpty {
+                            field(label: "账号", value: card.username)
+                        }
+
+                        if !card.password.isEmpty {
+                            passwordField
+                        }
+                    }
+
+                    if !card.note.isEmpty {
+                        noteField
+                    }
+                }
+                .padding(20)
+            }
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Button(action: onEdit) {
+                    Label("编辑", systemImage: "pencil")
+                        .scaledFont(size: 13)
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+
+                Button("关闭", action: onClose)
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+        }
+        .frame(width: embedded ? nil : 460, height: embedded ? nil : 440)
+        .frame(maxWidth: embedded ? .infinity : nil, maxHeight: embedded ? .infinity : nil)
+        .appFontSizeScaled()
+    }
+
+    private func field(label: String, value: String, copyable: Bool = true) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .scaledFont(size: 11, weight: .medium)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                Text(value)
+                    .scaledFont(size: 13)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if copyable {
+                    Button(action: { Clipboard.copy(value) }) {
+                        Image(systemName: "doc.on.doc")
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("复制\(label)")
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.secondary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+    }
+
+    private var urlField: some View {
+        let isApplication = LaunchTarget.isApplication(card.url)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(isApplication ? "应用" : "地址")
+                .scaledFont(size: 11, weight: .medium)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                Button(action: { LaunchTarget.open(card.url, cardID: card.id) }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: isApplication ? "app" : "safari")
+                            .scaledFont(size: 11)
+                        Text(LaunchTarget.displayName(for: card.url, dataService: dataService))
+                            .scaledFont(size: 13)
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(.blue)
+                }
+                .buttonStyle(.plain)
+                .help(card.url)
+
+                Spacer()
+
+                Button(action: { Clipboard.copy(card.url) }) {
+                    Image(systemName: "doc.on.doc")
+                        .scaledFont(size: 11)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("复制地址")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.secondary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+    }
+
+    private var passwordField: some View {
+        secretField(
+            label: "密码",
+            value: card.password,
+            revealed: showPassword,
+            toggle: { showPassword.toggle() }
+        )
+    }
+
+    private func toggleCustomFieldReveal(_ id: String) {
+        if revealedCustomFieldIDs.contains(id) {
+            revealedCustomFieldIDs.remove(id)
+        } else {
+            revealedCustomFieldIDs.insert(id)
+        }
+    }
+
+    private func secretField(label: String, value: String, revealed: Bool, toggle: @escaping () -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .scaledFont(size: 11, weight: .medium)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                Text(revealed ? value : String(repeating: "•", count: min(max(value.count, 6), 12)))
+                    .scaledFont(size: 13, design: .monospaced)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button(action: toggle) {
+                    Image(systemName: revealed ? "eye.slash" : "eye")
+                        .scaledFont(size: 11)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(revealed ? "隐藏内容" : "显示内容")
+
+                Button(action: { Clipboard.copy(value) }) {
+                    Image(systemName: "doc.on.doc")
+                        .scaledFont(size: 11)
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("复制\(label)")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.secondary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+    }
+
+    private var noteField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("备注")
+                .scaledFont(size: 11, weight: .medium)
+                .foregroundColor(.secondary)
+
+            Text(card.note)
+                .scaledFont(size: 13)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.secondary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+        }
+    }
+}
+
 // MARK: - 设置页
 
 private enum SettingsPage: String, CaseIterable, Identifiable {
     case general = "通用"
+    case appearance = "外观"
     case shortcuts = "快捷键"
 
     var id: String { rawValue }
@@ -1091,23 +1941,42 @@ struct SettingsView: View {
     @State private var selectedPage: SettingsPage = .general
     @State private var preferredBrowserPath = PreferredBrowserStore.applicationPath
     @State private var showMigrationSheet = false
+    @State private var showBindFile = false
     @StateObject private var launchAtLoginService = LaunchAtLoginService()
     @AppStorage(CredentialPanelPreferences.isEnabledKey)
     private var credentialPanelEnabled = true
     @AppStorage(PasswordInputPreferences.forcesRomanInputKey)
     private var forcesRomanPasswordInput = false
+    @AppStorage(AppearancePreferences.fontSizeLevelKey)
+    private var fontSizeLevelRaw = AppFontSizeLevel.standard.rawValue
+    @AppStorage(PresentationPreferences.modeKey)
+    private var presentationModeRaw = CardPresentationMode.popup.rawValue
     @State private var autoDismissSecondsText = String(CredentialPanelPreferences.autoDismissSeconds)
+
+    private var fontSizeLevel: Binding<AppFontSizeLevel> {
+        Binding(
+            get: { AppFontSizeLevel(rawValue: fontSizeLevelRaw) ?? .standard },
+            set: { fontSizeLevelRaw = $0.rawValue }
+        )
+    }
+
+    private var presentationMode: Binding<CardPresentationMode> {
+        Binding(
+            get: { CardPresentationMode(rawValue: presentationModeRaw) ?? .popup },
+            set: { presentationModeRaw = $0.rawValue }
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // 标题栏
             HStack {
                 Text("设置")
-                    .font(.system(size: 16, weight: .semibold))
+                    .scaledFont(size: 16, weight: .semibold)
                 Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .medium))
+                        .scaledFont(size: 13, weight: .medium)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1134,6 +2003,8 @@ struct SettingsView: View {
                 switch selectedPage {
                 case .general:
                     generalSettings
+                case .appearance:
+                    appearanceSettings
                 case .shortcuts:
                     ShortcutSettingsView()
                 }
@@ -1151,6 +2022,9 @@ struct SettingsView: View {
             .padding(.vertical, 14)
         }
         .frame(width: 500, height: 480)
+        .sheet(isPresented: $showBindFile) {
+            BindFileView(isPresented: $showBindFile)
+        }
         .sheet(isPresented: $showMigrationSheet) {
             MigrationPassphraseView(
                 isPresented: $showMigrationSheet,
@@ -1175,6 +2049,96 @@ struct SettingsView: View {
         }
     }
 
+    private var appearanceSettings: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+
+                // ── 条目展示 ──
+                SectionHeader(title: "条目展示")
+
+                HStack(spacing: 14) {
+                    Image(systemName: "rectangle.split.3x1")
+                        .scaledFont(size: 25)
+                        .foregroundColor(.blue)
+                        .frame(width: 34)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("展示模式")
+                            .scaledFont(size: 13, weight: .medium)
+                        Text(presentationMode.wrappedValue.detailDescription)
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Picker("", selection: presentationMode) {
+                        ForEach(CardPresentationMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 180)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                // ── 字体大小 ──
+                SectionHeader(title: "字体大小")
+
+                HStack(spacing: 14) {
+                    Image(systemName: "textformat.size")
+                        .scaledFont(size: 25)
+                        .foregroundColor(.blue)
+                        .frame(width: 34)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("界面字体大小")
+                            .scaledFont(size: 13, weight: .medium)
+                        Text("调整整个应用的文字大小，即时生效")
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Picker("", selection: fontSizeLevel) {
+                        ForEach(AppFontSizeLevel.allCases) { level in
+                            Text(level.displayName).tag(level)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 216)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                // ── 预览 ──
+                SectionHeader(title: "预览")
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("账号名称")
+                        .scaledFont(size: 14, weight: .semibold)
+                    Text("example@xrecord.app")
+                        .scaledFont(size: 12)
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color.secondary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+            }
+        }
+    }
+
     private var generalSettings: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -1190,15 +2154,44 @@ struct SettingsView: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("XRecord")
-                            .font(.system(size: 15, weight: .semibold))
+                            .scaledFont(size: 15, weight: .semibold)
                         Text("版本 \(updateService.currentVersion)")
-                            .font(.system(size: 12))
+                            .scaledFont(size: 12)
                             .foregroundColor(.secondary)
                         Text("简洁优雅的密码管理工具")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                     Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
+                // ── 数据文件 ──
+                SectionHeader(title: "数据文件")
+
+                HStack(spacing: 14) {
+                    Image(systemName: "doc.text")
+                        .scaledFont(size: 25)
+                        .foregroundColor(.blue)
+                        .frame(width: 34)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("当前数据文件")
+                            .scaledFont(size: 13, weight: .medium)
+                        Text(dataService.filePathDisplay)
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Button("绑定文件") { showBindFile = true }
+                        .buttonStyle(.bordered)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
@@ -1211,15 +2204,15 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 14) {
                         Image(systemName: "power")
-                            .font(.system(size: 25))
+                            .scaledFont(size: 25)
                             .foregroundColor(.blue)
                             .frame(width: 34)
 
                         VStack(alignment: .leading, spacing: 3) {
                             Text("开机自动启动 XRecord")
-                                .font(.system(size: 13, weight: .medium))
+                                .scaledFont(size: 13, weight: .medium)
                             Text("登录 Mac 后自动运行 XRecord")
-                                .font(.system(size: 11))
+                                .scaledFont(size: 11)
                                 .foregroundColor(.secondary)
                         }
 
@@ -1240,7 +2233,7 @@ struct SettingsView: View {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.orange)
                             Text("需要在系统设置的登录项中允许 XRecord")
-                                .font(.system(size: 11))
+                                .scaledFont(size: 11)
                                 .foregroundColor(.secondary)
                             Spacer()
                             Button("打开系统设置") {
@@ -1262,15 +2255,15 @@ struct SettingsView: View {
 
                 HStack(spacing: 14) {
                     Image(systemName: "rectangle.on.rectangle")
-                        .font(.system(size: 25))
+                        .scaledFont(size: 25)
                         .foregroundColor(.blue)
                         .frame(width: 34)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("打开目标后显示凭据浮窗")
-                            .font(.system(size: 13, weight: .medium))
+                            .scaledFont(size: 13, weight: .medium)
                         Text("作为总开关；还会遵循每个条目的独立设置")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
 
@@ -1284,10 +2277,10 @@ struct SettingsView: View {
 
                 HStack(spacing: 8) {
                     Text("浮窗未使用")
-                        .font(.system(size: 13))
+                        .scaledFont(size: 13)
                     TextField("", text: $autoDismissSecondsText)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 13))
+                        .scaledFont(size: 13)
                         .multilineTextAlignment(.center)
                         .frame(width: 56)
                         .onChange(of: autoDismissSecondsText) { newValue in
@@ -1296,9 +2289,9 @@ struct SettingsView: View {
                             CredentialPanelPreferences.setAutoDismissSeconds(seconds)
                         }
                     Text("秒后自动消失")
-                        .font(.system(size: 13))
+                        .scaledFont(size: 13)
                     Text("（-1 表示不消失）")
-                        .font(.system(size: 11))
+                        .scaledFont(size: 11)
                         .foregroundColor(.secondary)
                     Spacer()
                 }
@@ -1312,15 +2305,15 @@ struct SettingsView: View {
 
                 HStack(spacing: 14) {
                     Image(systemName: "character.cursor.ibeam")
-                        .font(.system(size: 25))
+                        .scaledFont(size: 25)
                         .foregroundColor(.blue)
                         .frame(width: 34)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("密码框始终使用英文输入")
-                            .font(.system(size: 13, weight: .medium))
+                            .scaledFont(size: 13, weight: .medium)
                         Text("开启后，输入密码时自动使用英文键盘，仍可输入数字和符号")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
 
@@ -1345,9 +2338,9 @@ struct SettingsView: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(preferredBrowserName)
-                            .font(.system(size: 13, weight: .medium))
+                            .scaledFont(size: 13, weight: .medium)
                         Text(preferredBrowserDescription)
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -1365,7 +2358,7 @@ struct SettingsView: View {
 
                     Button(action: selectBrowser) {
                         Label("选择", systemImage: "folder")
-                            .font(.system(size: 12))
+                            .scaledFont(size: 12)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -1381,16 +2374,16 @@ struct SettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("当前版本 v\(updateService.currentVersion)")
-                                .font(.system(size: 13))
+                                .scaledFont(size: 13)
                             Text("由 Sparkle 安全下载、安装并重新启动")
-                                .font(.system(size: 11))
+                                .scaledFont(size: 11)
                                 .foregroundColor(.secondary)
                         }
                         Spacer()
 
                         Button(action: { updateService.checkForUpdates() }) {
                             Label("检查更新", systemImage: "arrow.clockwise")
-                                .font(.system(size: 12))
+                                .scaledFont(size: 12)
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(!updateService.canCheckForUpdates)
@@ -1403,7 +2396,7 @@ struct SettingsView: View {
                             set: { updateService.setAutomaticallyChecksForUpdates($0) }
                         )
                     )
-                    .font(.system(size: 12))
+                    .scaledFont(size: 12)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
@@ -1415,17 +2408,17 @@ struct SettingsView: View {
 
                 HStack(spacing: 14) {
                     Image(systemName: "key.horizontal.fill")
-                        .font(.system(size: 25))
+                        .scaledFont(size: 25)
                         .foregroundColor(.blue)
                         .frame(width: 34)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text("迁移口令")
-                            .font(.system(size: 13, weight: .medium))
+                            .scaledFont(size: 13, weight: .medium)
                         Text(dataService.hasMigrationPassphrase
                              ? "已设置，可将数据文件复制到其他 Mac 并用口令解锁"
                              : "未设置，数据文件只能在本机解锁")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
 
@@ -1454,9 +2447,9 @@ struct SettingsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("GitHub 仓库")
-                            .font(.system(size: 13))
+                            .scaledFont(size: 13)
                         Text("查看源码和提交反馈")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                     Spacer()
@@ -1464,7 +2457,7 @@ struct SettingsView: View {
                         NSWorkspace.shared.open(URL(string: "https://github.com/juiceiie/XRecord")!)
                     }) {
                         Label("打开", systemImage: "arrow.up.right.square")
-                            .font(.system(size: 12))
+                            .scaledFont(size: 12)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -1542,11 +2535,11 @@ private struct MigrationPassphraseView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(title)
-                    .font(.system(size: 16, weight: .semibold))
+                    .scaledFont(size: 16, weight: .semibold)
                 Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .medium))
+                        .scaledFont(size: 13, weight: .medium)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1559,7 +2552,7 @@ private struct MigrationPassphraseView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(intro)
-                    .font(.system(size: 12))
+                    .scaledFont(size: 12)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -1570,7 +2563,7 @@ private struct MigrationPassphraseView: View {
 
                 if let errorMessage {
                     Text(errorMessage)
-                        .font(.system(size: 11))
+                        .scaledFont(size: 11)
                         .foregroundColor(.red)
                 }
             }
@@ -1619,14 +2612,14 @@ private struct ShortcutSettingsView: View {
 
                 HStack(spacing: 16) {
                     Image(systemName: "magnifyingglass.circle.fill")
-                        .font(.system(size: 30))
+                        .scaledFont(size: 30)
                         .foregroundStyle(.blue, .blue.opacity(0.18))
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("快速检索")
-                            .font(.system(size: 14, weight: .semibold))
+                            .scaledFont(size: 14, weight: .semibold)
                         Text("在任意应用中唤起 XRecord 搜索窗口")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
 
@@ -1642,9 +2635,9 @@ private struct ShortcutSettingsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("恢复默认")
-                            .font(.system(size: 13))
+                            .scaledFont(size: 13)
                         Text("默认快捷键为 ⌥X")
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
                     Spacer()
@@ -1671,7 +2664,7 @@ private struct ShortcutRecorderView: View {
         VStack(alignment: .trailing, spacing: 5) {
             Button(action: toggleRecording) {
                 Text(isRecording ? "请按快捷键…" : service.shortcut.displayText)
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .scaledFont(size: 13, weight: .medium, design: .rounded)
                     .frame(minWidth: 86)
             }
             .buttonStyle(.bordered)
@@ -1679,11 +2672,11 @@ private struct ShortcutRecorderView: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 10))
+                    .scaledFont(size: 10)
                     .foregroundColor(.red)
             } else if isRecording {
                 Text("按 Esc 取消")
-                    .font(.system(size: 10))
+                    .scaledFont(size: 10)
                     .foregroundColor(.secondary)
             }
         }
@@ -1742,7 +2735,7 @@ struct SectionHeader: View {
     let title: String
     var body: some View {
         Text(title)
-            .font(.system(size: 11, weight: .semibold))
+            .scaledFont(size: 11, weight: .semibold)
             .foregroundColor(.secondary)
             .textCase(.uppercase)
             .padding(.horizontal, 20)

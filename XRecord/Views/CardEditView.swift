@@ -9,8 +9,17 @@ struct CardEditView: View {
     @Binding var isPresented: Bool
     let editingCard: Card?
     var groupId: String?
+    /// 新建时的条目类型（编辑时以原条目类型为准）
+    var initialKind: CardKind = .standard
     var showsHeader: Bool = true
+    /// 嵌入三段式第三段时使用，去掉固定尺寸以填满分栏
+    var embedded: Bool = false
+    /// 保存成功后回调（用于三段式切换到查看模式）
+    var onSaved: ((Card) -> Void)? = nil
 
+    @State private var kind: CardKind = .standard
+    @State private var customFields: [CustomField] = []
+    @State private var revealedCustomFieldIDs: Set<String> = []
     @State private var name: String = ""
     @State private var url: String = ""
     @State private var username: String = ""
@@ -40,8 +49,10 @@ struct CardEditView: View {
             if showsHeader {
                 // Sheet 模式使用自定义标题栏；独立窗口使用 macOS 原生标题栏。
                 HStack {
-                    Text(isEditing ? "编辑条目" : "添加条目")
-                        .font(.system(size: 16, weight: .semibold))
+                    Text(isEditing
+                         ? (kind == .custom ? "编辑自定义条目" : "编辑条目")
+                         : (kind == .custom ? "添加自定义条目" : "添加条目"))
+                        .scaledFont(size: 16, weight: .semibold)
                     Spacer()
                     if !isEditing {
                         HStack(spacing: 4) {
@@ -49,7 +60,7 @@ struct CardEditView: View {
                                 .fill(Color(hex: dataService.data.groups.first(where: { $0.id == groupId })?.colorHex ?? "#888888"))
                                 .frame(width: 8, height: 8)
                             Text(groupName)
-                                .font(.system(size: 11))
+                                .scaledFont(size: 11)
                                 .foregroundColor(.secondary)
                         }
                         .padding(.horizontal, 8)
@@ -59,7 +70,7 @@ struct CardEditView: View {
                     }
                     Button(action: { isPresented = false }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .medium))
+                            .scaledFont(size: 13, weight: .medium)
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
@@ -79,44 +90,48 @@ struct CardEditView: View {
                     // 网址或本机应用
                     LaunchTargetInput(text: $url)
 
-                    // 账号密码
-                    HStack(spacing: 14) {
-                        FormFieldInput(label: "账号", placeholder: "username", text: $username)
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("密码")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.secondary)
-                            }
-                            HStack {
-                                LastCharacterSecureField(
-                                    text: $password,
-                                    revealsText: showPassword,
-                                    forcesRomanInput: forcesRomanPasswordInput
-                                )
-                                .frame(height: 22)
-
-                                Button(action: { showPassword.toggle() }) {
-                                    Image(systemName: showPassword ? "eye.slash" : "eye")
+                    if kind == .custom {
+                        customFieldsEditor
+                    } else {
+                        // 账号密码
+                        HStack(spacing: 14) {
+                            FormFieldInput(label: "账号", placeholder: "username", text: $username)
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("密码")
+                                        .scaledFont(size: 12, weight: .medium)
                                         .foregroundColor(.secondary)
                                 }
-                                .buttonStyle(.plain)
+                                HStack {
+                                    LastCharacterSecureField(
+                                        text: $password,
+                                        revealsText: showPassword,
+                                        forcesRomanInput: forcesRomanPasswordInput
+                                    )
+                                    .frame(height: 22)
+
+                                    Button(action: { showPassword.toggle() }) {
+                                        Image(systemName: showPassword ? "eye.slash" : "eye")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
+                            .frame(maxWidth: .infinity)
                         }
-                        .frame(maxWidth: .infinity)
                     }
 
                     if credentialPanelEnabled {
                         HStack(spacing: 12) {
                             Image(systemName: "rectangle.on.rectangle")
-                                .font(.system(size: 18))
+                                .scaledFont(size: 18)
                                 .foregroundColor(.blue)
                                 .frame(width: 24)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("打开后显示凭据浮窗")
-                                    .font(.system(size: 12, weight: .medium))
+                                    .scaledFont(size: 12, weight: .medium)
                                 Text("需同时开启设置中的全局开关")
-                                    .font(.system(size: 10))
+                                    .scaledFont(size: 10)
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
@@ -132,10 +147,10 @@ struct CardEditView: View {
                     // 备注
                     VStack(alignment: .leading, spacing: 6) {
                         Text("备注")
-                            .font(.system(size: 12, weight: .medium))
+                            .scaledFont(size: 12, weight: .medium)
                             .foregroundColor(.secondary)
                         TextEditor(text: $note)
-                            .font(.system(size: 14))
+                            .scaledFont(size: 14)
                             .frame(minHeight: 70)
                             .padding(6)
                             .background(Color(nsColor: .textBackgroundColor))
@@ -165,7 +180,8 @@ struct CardEditView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 500, height: showsHeader ? 480 : 430)
+        .frame(width: embedded ? nil : 500, height: embedded ? nil : (showsHeader ? 480 : 430))
+        .frame(maxWidth: embedded ? .infinity : nil, maxHeight: embedded ? .infinity : nil)
         .alert("请先选择一个分组", isPresented: $showGroupError) {
             Button("确定") { isPresented = false }
         } message: {
@@ -174,6 +190,8 @@ struct CardEditView: View {
         .onAppear {
             if let c = editingCard {
                 currentEditingId = c.id
+                kind = c.cardKind
+                customFields = c.customFields ?? []
                 name = c.name
                 url = c.url
                 username = c.username
@@ -182,6 +200,8 @@ struct CardEditView: View {
                 showsCredentialPanel = c.isCredentialPanelEnabled
             } else {
                 currentEditingId = nil
+                kind = initialKind
+                customFields = initialKind == .custom ? [CustomField(label: "", value: "")] : []
                 name = ""
                 url = ""
                 username = ""
@@ -191,6 +211,111 @@ struct CardEditView: View {
             }
         }
         .onDisappear { currentEditingId = nil }
+        .appFontSizeScaled()
+    }
+
+    private var customFieldsEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("自定义小项")
+                    .scaledFont(size: 12, weight: .medium)
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button(action: { customFields.append(CustomField(label: "", value: "")) }) {
+                    Label("添加小项", systemImage: "plus")
+                        .scaledFont(size: 12)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if customFields.isEmpty {
+                Text("还没有小项，点击「添加小项」自定义，例如「帐套：12344」")
+                    .scaledFont(size: 11)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 4)
+            } else {
+                ForEach($customFields) { $field in
+                    HStack(spacing: 8) {
+                        TextField("名称", text: $field.label)
+                            .textFieldStyle(.roundedBorder)
+                            .scaledFont(size: 13)
+                            .frame(width: 100)
+
+                        Text(":")
+                            .foregroundColor(.secondary)
+
+                        if field.isSecretField {
+                            HStack(spacing: 6) {
+                                LastCharacterSecureField(
+                                    text: $field.value,
+                                    revealsText: revealedCustomFieldIDs.contains(field.id),
+                                    forcesRomanInput: false
+                                )
+                                .frame(height: 22)
+
+                                Button(action: { toggleCustomFieldReveal(field.id) }) {
+                                    Image(systemName: revealedCustomFieldIDs.contains(field.id) ? "eye.slash" : "eye")
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .help(revealedCustomFieldIDs.contains(field.id) ? "隐藏内容" : "显示内容")
+                            }
+                        } else {
+                            TextField("内容", text: $field.value)
+                                .textFieldStyle(.roundedBorder)
+                                .scaledFont(size: 13)
+                        }
+
+                        Toggle("密文显示", isOn: Binding(
+                            get: { field.isSecretField },
+                            set: { newValue in
+                                field.isSecret = newValue
+                                if !newValue {
+                                    revealedCustomFieldIDs.remove(field.id)
+                                }
+                            }
+                        ))
+                        .toggleStyle(.checkbox)
+                        .scaledFont(size: 11)
+                        .fixedSize()
+
+                        Button(action: { removeCustomField(field.id) }) {
+                            Image(systemName: "minus.circle")
+                                .scaledFont(size: 13)
+                                .foregroundColor(.red.opacity(0.7))
+                        }
+                        .buttonStyle(.plain)
+                        .help("删除小项")
+                    }
+                }
+            }
+        }
+    }
+
+    private var cleanedCustomFields: [CustomField] {
+        customFields.compactMap { field in
+            let label = field.label.trimmingCharacters(in: .whitespaces)
+            let value = field.value.trimmingCharacters(in: .whitespaces)
+            guard !label.isEmpty || !value.isEmpty else { return nil }
+            var cleaned = field
+            cleaned.label = label
+            cleaned.value = value
+            return cleaned
+        }
+    }
+
+    private func removeCustomField(_ id: String) {
+        customFields.removeAll { $0.id == id }
+        revealedCustomFieldIDs.remove(id)
+    }
+
+    private func toggleCustomFieldReveal(_ id: String) {
+        if revealedCustomFieldIDs.contains(id) {
+            revealedCustomFieldIDs.remove(id)
+        } else {
+            revealedCustomFieldIDs.insert(id)
+        }
     }
 
     private func save() {
@@ -202,29 +327,45 @@ struct CardEditView: View {
             return
         }
 
+        let trimmedURL = url.trimmingCharacters(in: .whitespaces)
+        let trimmedNote = note.trimmingCharacters(in: .whitespaces)
+
         if let editId = currentEditingId,
            let existing = dataService.data.cards.first(where: { $0.id == editId }) {
             var c = existing
             c.name = trimmedName
-            c.url = url.trimmingCharacters(in: .whitespaces)
-            c.username = username.trimmingCharacters(in: .whitespaces)
-            c.password = password
-            c.note = note.trimmingCharacters(in: .whitespaces)
+            c.url = trimmedURL
+            c.note = trimmedNote
             c.showsCredentialPanel = showsCredentialPanel
+            c.kind = kind
+            if kind == .custom {
+                c.customFields = cleanedCustomFields
+                c.username = ""
+                c.password = ""
+            } else {
+                c.customFields = nil
+                c.username = username.trimmingCharacters(in: .whitespaces)
+                c.password = password
+            }
             dataService.updateCard(c)
+            isPresented = false
+            onSaved?(c)
         } else {
             let newCard = Card(
                 groupId: gid,
                 name: trimmedName,
-                url: url.trimmingCharacters(in: .whitespaces),
-                username: username.trimmingCharacters(in: .whitespaces),
-                password: password,
-                note: note.trimmingCharacters(in: .whitespaces),
-                showsCredentialPanel: showsCredentialPanel
+                url: trimmedURL,
+                username: kind == .custom ? "" : username.trimmingCharacters(in: .whitespaces),
+                password: kind == .custom ? "" : password,
+                note: trimmedNote,
+                showsCredentialPanel: showsCredentialPanel,
+                kind: kind,
+                customFields: kind == .custom ? cleanedCustomFields : nil
             )
             dataService.addCard(newCard)
+            isPresented = false
+            onSaved?(newCard)
         }
-        isPresented = false
     }
 }
 
@@ -234,7 +375,7 @@ struct CardEditView: View {
 final class CardEditWindowPresenter: NSObject, ObservableObject, NSWindowDelegate {
     private var editorWindow: NSWindow?
 
-    func present(dataService: DataService, editingCard: Card?, groupId: String) {
+    func present(dataService: DataService, editingCard: Card?, groupId: String, kind: CardKind = .standard) {
         editorWindow?.close()
 
         let groupName = dataService.data.groups.first(where: { $0.id == groupId })?.name ?? "未分组"
@@ -244,7 +385,11 @@ final class CardEditWindowPresenter: NSObject, ObservableObject, NSWindowDelegat
             backing: .buffered,
             defer: false
         )
-        window.title = editingCard == nil ? "添加条目 · \(groupName)" : "编辑条目 · \(groupName)"
+        if editingCard == nil {
+            window.title = (kind == .custom ? "添加自定义条目" : "添加条目") + " · \(groupName)"
+        } else {
+            window.title = "编辑条目 · \(groupName)"
+        }
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.contentMinSize = NSSize(width: 500, height: 430)
@@ -262,6 +407,7 @@ final class CardEditWindowPresenter: NSObject, ObservableObject, NSWindowDelegat
             isPresented: isPresented,
             editingCard: editingCard,
             groupId: groupId,
+            initialKind: kind,
             showsHeader: false
         )
         .environmentObject(dataService)
@@ -295,9 +441,14 @@ final class CardEditWindowPresenter: NSObject, ObservableObject, NSWindowDelegat
 // MARK: - 延时遮蔽密码输入
 
 private struct LastCharacterSecureField: NSViewRepresentable {
+    @Environment(\.appFontScale) private var fontScale
     @Binding var text: String
     let revealsText: Bool
     let forcesRomanInput: Bool
+
+    private var fieldFont: NSFont {
+        NSFont.monospacedSystemFont(ofSize: 14 * fontScale, weight: .regular)
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -310,7 +461,7 @@ private struct LastCharacterSecureField: NSViewRepresentable {
         let container = NSView()
         let secureField = NSSecureTextField()
         let maskLabel = PasswordMaskLabel(labelWithString: "")
-        let font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+        let font = fieldFont
 
         secureField.translatesAutoresizingMaskIntoConstraints = false
         secureField.placeholderString = "password"
@@ -350,6 +501,12 @@ private struct LastCharacterSecureField: NSViewRepresentable {
         context.coordinator.revealsText = revealsText
         if let cell = context.coordinator.secureField?.cell as? NSTextFieldCell {
             cell.allowedInputSourceLocales = allowedInputSourceLocales
+        }
+        if let secureField = context.coordinator.secureField, secureField.font != fieldFont {
+            secureField.font = fieldFont
+        }
+        if let maskLabel = context.coordinator.maskLabel, maskLabel.font != fieldFont {
+            maskLabel.font = fieldFont
         }
         if needsRefresh {
             context.coordinator.refresh(value: text, revealLast: false)
@@ -436,17 +593,17 @@ struct LaunchTargetInput: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("网址或应用")
-                .font(.system(size: 12, weight: .medium))
+                .scaledFont(size: 12, weight: .medium)
                 .foregroundColor(.secondary)
 
             HStack(spacing: 8) {
                 TextField("https://example.com 或选择一个应用", text: $text)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 14))
+                    .scaledFont(size: 14)
 
                 Button(action: selectApplication) {
                     Image(systemName: "app.badge")
-                        .font(.system(size: 13))
+                        .scaledFont(size: 13)
                 }
                 .buttonStyle(.bordered)
                 .help("选择 macOS 应用")
@@ -483,7 +640,7 @@ struct FormFieldInput: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 3) {
                 Text(label)
-                    .font(.system(size: 12, weight: .medium))
+                    .scaledFont(size: 12, weight: .medium)
                     .foregroundColor(.secondary)
                 if required {
                     Text("*")
@@ -492,7 +649,7 @@ struct FormFieldInput: View {
             }
             TextField(placeholder, text: $text)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 14))
+                .scaledFont(size: 14)
         }
     }
 }

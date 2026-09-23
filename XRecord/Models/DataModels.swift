@@ -31,6 +31,31 @@ struct Group: Codable, Identifiable, Equatable {
     }
 }
 
+// MARK: - 条目类型
+
+/// 标准条目固定填写账号与密码；自定义条目由用户自行添加若干「名称: 内容」小项。
+enum CardKind: String, Codable {
+    case standard
+    case custom
+}
+
+/// 自定义条目中的一个小项，例如「帐套：12344」
+struct CustomField: Codable, Identifiable, Equatable {
+    var id: String = UUID().uuidString
+    var label: String
+    var value: String
+    /// 是否以密文方式显示（类似密码）
+    var isSecret: Bool? = nil
+
+    var isSecretField: Bool {
+        isSecret ?? false
+    }
+
+    static func == (lhs: CustomField, rhs: CustomField) -> Bool {
+        lhs.id == rhs.id && lhs.label == rhs.label && lhs.value == rhs.value && lhs.isSecretField == rhs.isSecretField
+    }
+}
+
 struct Card: Codable, Identifiable, Equatable {
     var id: String = UUID().uuidString
     var groupId: String
@@ -40,10 +65,38 @@ struct Card: Codable, Identifiable, Equatable {
     var password: String
     var note: String
     var showsCredentialPanel: Bool? = nil
+    var isFavorite: Bool? = nil
+    var deletedAt: Date? = nil
+    var kind: CardKind? = nil
+    var customFields: [CustomField]? = nil
     var createdAt: Date = Date()
 
     var isCredentialPanelEnabled: Bool {
         showsCredentialPanel ?? true
+    }
+
+    var isFavorited: Bool {
+        isFavorite ?? false
+    }
+
+    var isTrashed: Bool {
+        deletedAt != nil
+    }
+
+    var cardKind: CardKind {
+        kind ?? .standard
+    }
+
+    var isCustom: Bool {
+        cardKind == .custom
+    }
+
+    /// 自定义条目中有效（内容非空）的小项
+    var effectiveCustomFields: [CustomField] {
+        (customFields ?? []).filter {
+            !$0.label.trimmingCharacters(in: .whitespaces).isEmpty
+                || !$0.value.trimmingCharacters(in: .whitespaces).isEmpty
+        }
     }
 
     func sharingText(
@@ -51,15 +104,24 @@ struct Card: Codable, Identifiable, Equatable {
         targetLabel: String = "地址",
         targetValue: String? = nil
     ) -> String {
-        [
+        var lines = [
             "【XRecord笔记本】",
             "分类：\(groupName ?? "未分类")",
             "名称：\(name)",
-            "\(targetLabel)：\(targetValue ?? url)",
-            "账号：\(username)",
-            "密码：\(password)",
-            "备注：\(note)"
-        ].joined(separator: "\n")
+            "\(targetLabel)：\(targetValue ?? url)"
+        ]
+
+        if isCustom {
+            for field in effectiveCustomFields where !field.value.isEmpty {
+                lines.append("\(field.label)：\(field.value)")
+            }
+        } else {
+            lines.append("账号：\(username)")
+            lines.append("密码：\(password)")
+        }
+
+        lines.append("备注：\(note)")
+        return lines.joined(separator: "\n")
     }
 
     static func == (lhs: Card, rhs: Card) -> Bool {

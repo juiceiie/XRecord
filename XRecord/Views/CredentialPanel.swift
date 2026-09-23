@@ -50,6 +50,7 @@ final class CredentialPanelController {
     private let panel: CredentialPanel
     private var presentationID = UUID()
     private var autoDismissWorkItem: DispatchWorkItem?
+    private var isCustomCard = false
 
     init() {
         panel = CredentialPanel(
@@ -74,14 +75,22 @@ final class CredentialPanelController {
     }
 
     func show(card: Card, groupName: String, groupColorHex: String) {
-        guard !card.username.isEmpty || !card.password.isEmpty else {
+        isCustomCard = card.isCustom
+
+        let visibleCustomFields = card.effectiveCustomFields.filter { !$0.value.isEmpty }
+        let hasContent = card.isCustom
+            ? !visibleCustomFields.isEmpty
+            : (!card.username.isEmpty || !card.password.isEmpty)
+        guard hasContent else {
             hide()
             return
         }
 
         let currentPresentationID = UUID()
         presentationID = currentPresentationID
-        let initialCredentialCount = [card.username, card.password].filter { !$0.isEmpty }.count
+        let initialCredentialCount = card.isCustom
+            ? visibleCustomFields.count
+            : [card.username, card.password].filter { !$0.isEmpty }.count
         let content = CredentialPanelView(
             card: card,
             groupName: groupName,
@@ -168,7 +177,14 @@ final class CredentialPanelController {
 
     private func resize(forCredentialCount count: Int, animated: Bool) {
         guard count > 0 else { return }
-        let targetWidth = count > 1 ? expandedCredentialPanelWidth : compactCredentialPanelWidth
+        let targetWidth: CGFloat
+        if isCustomCard {
+            // 每个自定义小项一个按钮，按数量撑开浮窗宽度
+            let buttonsWidth = CGFloat(count) * 40 + CGFloat(max(count - 1, 0)) * 18
+            targetWidth = max(compactCredentialPanelWidth, buttonsWidth + 72)
+        } else {
+            targetWidth = count > 1 ? expandedCredentialPanelWidth : compactCredentialPanelWidth
+        }
         guard panel.frame.width != targetWidth || panel.frame.height != credentialPanelHeight else { return }
 
         let currentFrame = panel.frame
@@ -207,10 +223,17 @@ private struct CredentialPanelView: View {
 
     @State private var showsUsername = true
     @State private var showsPassword = true
+    @State private var hiddenCustomFieldIDs: Set<String> = []
     @State private var toastText: String?
 
     private var groupColor: Color {
         Color(hex: groupColorHex)
+    }
+
+    private var visibleCustomFields: [CustomField] {
+        card.effectiveCustomFields.filter {
+            !$0.value.isEmpty && !hiddenCustomFieldIDs.contains($0.id)
+        }
     }
 
     var body: some View {
@@ -226,13 +249,13 @@ private struct CredentialPanelView: View {
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text("XRecord")
-                        .font(.system(size: 12, weight: .semibold))
+                        .scaledFont(size: 12, weight: .semibold)
                     HStack(spacing: 4) {
                         Circle()
                             .fill(groupColor)
                             .frame(width: 6, height: 6)
                         Text("\(groupName) · \(card.name)")
-                            .font(.system(size: 10))
+                            .scaledFont(size: 10)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -242,7 +265,7 @@ private struct CredentialPanelView: View {
 
                 Button(action: onDismiss) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .scaledFont(size: 10, weight: .semibold)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
                 }
@@ -257,7 +280,7 @@ private struct CredentialPanelView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                         Text(toastText)
-                            .font(.system(size: 12, weight: .medium))
+                            .scaledFont(size: 12, weight: .medium)
                     }
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 } else {
@@ -266,19 +289,30 @@ private struct CredentialPanelView: View {
             }
             .frame(height: 16)
 
-            HStack(spacing: 26) {
-                if !card.username.isEmpty && showsUsername {
-                    credentialButton(title: "账号", icon: "person.crop.circle") {
-                        let remainingCount = card.password.isEmpty || !showsPassword ? 0 : 1
-                        showsUsername = false
-                        copy(card.username, label: "账号", remainingCount: remainingCount)
+            HStack(spacing: card.isCustom ? 18 : 26) {
+                if card.isCustom {
+                    ForEach(visibleCustomFields) { field in
+                        let title = field.label.isEmpty ? "小项" : field.label
+                        credentialButton(title: title, icon: "doc.text") {
+                            let remainingCount = max(visibleCustomFields.count - 1, 0)
+                            hiddenCustomFieldIDs.insert(field.id)
+                            copy(field.value, label: title, remainingCount: remainingCount)
+                        }
                     }
-                }
-                if !card.password.isEmpty && showsPassword {
-                    credentialButton(title: "密码", icon: "key.fill") {
-                        let remainingCount = card.username.isEmpty || !showsUsername ? 0 : 1
-                        showsPassword = false
-                        copy(card.password, label: "密码", remainingCount: remainingCount)
+                } else {
+                    if !card.username.isEmpty && showsUsername {
+                        credentialButton(title: "账号", icon: "person.crop.circle") {
+                            let remainingCount = card.password.isEmpty || !showsPassword ? 0 : 1
+                            showsUsername = false
+                            copy(card.username, label: "账号", remainingCount: remainingCount)
+                        }
+                    }
+                    if !card.password.isEmpty && showsPassword {
+                        credentialButton(title: "密码", icon: "key.fill") {
+                            let remainingCount = card.username.isEmpty || !showsUsername ? 0 : 1
+                            showsPassword = false
+                            copy(card.password, label: "密码", remainingCount: remainingCount)
+                        }
                     }
                 }
             }
@@ -290,6 +324,7 @@ private struct CredentialPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.16))
         .clipShape(RoundedRectangle(cornerRadius: credentialCornerRadius, style: .continuous))
+        .appFontSizeScaled()
     }
 
     private func credentialButton(
@@ -300,7 +335,7 @@ private struct CredentialPanelView: View {
         VStack(spacing: 3) {
             Button(action: action) {
                 Image(systemName: icon)
-                    .font(.system(size: 16, weight: .semibold))
+                    .scaledFont(size: 16, weight: .semibold)
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
                     .background(groupColor.opacity(0.92))
@@ -314,7 +349,7 @@ private struct CredentialPanelView: View {
             .buttonStyle(.plain)
 
             Text(title)
-                .font(.system(size: 10, weight: .medium))
+                .scaledFont(size: 10, weight: .medium)
                 .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)

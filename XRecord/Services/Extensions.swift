@@ -239,7 +239,10 @@ enum RecentLaunchStore {
     static func cards(in data: AppData, limit: Int) -> [Card] {
         let cardsByID = Dictionary(uniqueKeysWithValues: data.cards.map { ($0.id, $0) })
         let cardIDs = UserDefaults.standard.stringArray(forKey: key) ?? []
-        return cardIDs.compactMap { cardsByID[$0] }.prefix(limit).map { $0 }
+        return cardIDs.compactMap { cardsByID[$0] }
+            .filter { !$0.isTrashed }
+            .prefix(limit)
+            .map { $0 }
     }
 }
 
@@ -288,5 +291,184 @@ extension NSColor {
     convenience init(hex: String) {
         let color = Color(hex: hex)
         self.init(color)
+    }
+}
+
+// MARK: - 字体大小偏好
+
+enum AppFontSizeLevel: String, CaseIterable, Identifiable {
+    case small
+    case standard
+    case large
+    case extraLarge
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .small: return "小"
+        case .standard: return "标准"
+        case .large: return "大"
+        case .extraLarge: return "特大"
+        }
+    }
+
+    var scale: CGFloat {
+        switch self {
+        case .small: return 0.9
+        case .standard: return 1.0
+        case .large: return 1.15
+        case .extraLarge: return 1.3
+        }
+    }
+}
+
+enum AppearancePreferences {
+    static let fontSizeLevelKey = "appFontSizeLevel"
+
+    static var fontSizeLevel: AppFontSizeLevel {
+        guard let raw = UserDefaults.standard.string(forKey: fontSizeLevelKey),
+              let level = AppFontSizeLevel(rawValue: raw) else {
+            return .standard
+        }
+        return level
+    }
+
+    static var fontScale: CGFloat { fontSizeLevel.scale }
+}
+
+// MARK: - 全局字体缩放
+
+private struct AppFontScaleEnvironmentKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 1
+}
+
+extension EnvironmentValues {
+    var appFontScale: CGFloat {
+        get { self[AppFontScaleEnvironmentKey.self] }
+        set { self[AppFontScaleEnvironmentKey.self] = newValue }
+    }
+}
+
+private struct AppFontScaleModifier: ViewModifier {
+    @AppStorage(AppearancePreferences.fontSizeLevelKey)
+    private var levelRaw = AppFontSizeLevel.standard.rawValue
+
+    func body(content: Content) -> some View {
+        let scale = (AppFontSizeLevel(rawValue: levelRaw) ?? .standard).scale
+        return content.environment(\.appFontScale, scale)
+    }
+}
+
+private struct ScaledFontModifier: ViewModifier {
+    @Environment(\.appFontScale) private var scale
+    let size: CGFloat
+    let weight: Font.Weight
+    let design: Font.Design
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size * scale, weight: weight, design: design))
+    }
+}
+
+extension View {
+    /// 在窗口/页面根部调用，注入全局字体缩放比例
+    func appFontSizeScaled() -> some View {
+        modifier(AppFontScaleModifier())
+    }
+
+    /// 替代 `.font(.system(size:))`，按设置中的字体大小档位缩放
+    func scaledFont(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> some View {
+        modifier(ScaledFontModifier(size: size, weight: weight, design: design))
+    }
+}
+
+// MARK: - 条目展示模式
+
+enum CardPresentationMode: String, CaseIterable, Identifiable {
+    /// 添加/编辑/查看时弹出独立窗口或弹窗
+    case popup
+    /// 在主窗口右侧栏内完成添加/编辑/查看
+    case threeColumn
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .popup: return "弹窗模式"
+        case .threeColumn: return "三段式"
+        }
+    }
+
+    var detailDescription: String {
+        switch self {
+        case .popup: return "添加、编辑、查看条目时弹出独立窗口"
+        case .threeColumn: return "在右侧分栏内完成添加、编辑与查看"
+        }
+    }
+}
+
+enum PresentationPreferences {
+    static let modeKey = "cardPresentationMode"
+    static let threeColumnWidthKey = "threeColumnPaneWidth"
+
+    static var mode: CardPresentationMode {
+        guard let raw = UserDefaults.standard.string(forKey: modeKey),
+              let mode = CardPresentationMode(rawValue: raw) else {
+            return .popup
+        }
+        return mode
+    }
+}
+
+// MARK: - 三段式背景层次
+
+extension Color {
+    /// 第一段：分类栏（浅灰）
+    static let paneSidebarBackground = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.isDarkAppearance
+            ? NSColor(calibratedWhite: 0.11, alpha: 1)
+            : NSColor(calibratedWhite: 0.925, alpha: 1)
+    })
+
+    /// 第二段：条目栏（浅浅灰）
+    static let paneListBackground = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.isDarkAppearance
+            ? NSColor(calibratedWhite: 0.15, alpha: 1)
+            : NSColor(calibratedWhite: 0.965, alpha: 1)
+    })
+
+    /// 第三段：详情栏（白）
+    static let paneDetailBackground = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.isDarkAppearance
+            ? NSColor(calibratedWhite: 0.19, alpha: 1)
+            : NSColor(calibratedWhite: 1.0, alpha: 1)
+    })
+}
+
+private extension NSAppearance {
+    var isDarkAppearance: Bool {
+        bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+}
+
+// MARK: - 获取承载窗口
+
+/// 用于在主窗口内访问 NSWindow（例如动态调整最小尺寸）
+struct WindowAccessor: NSViewRepresentable {
+    let onWindow: (NSWindow) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            if let window = view.window { onWindow(window) }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            if let window = nsView.window { onWindow(window) }
+        }
     }
 }

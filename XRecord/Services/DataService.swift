@@ -518,13 +518,17 @@ class DataService: ObservableObject {
     }
 
     func deleteGroup(id: String) {
+        // 分组下的条目移入回收站，便于恢复
+        let now = Date()
+        for idx in data.cards.indices where data.cards[idx].groupId == id {
+            data.cards[idx].deletedAt = now
+        }
         data.groups.removeAll { $0.id == id }
-        data.cards.removeAll { $0.groupId == id }
         save()
     }
 
     func groupCount(for groupId: String) -> Int {
-        data.cards.filter { $0.groupId == groupId }.count
+        data.cards.filter { $0.groupId == groupId && !$0.isTrashed }.count
     }
 
     // MARK: - 卡片操作
@@ -546,7 +550,68 @@ class DataService: ObservableObject {
     }
 
     func cards(for groupId: String) -> [Card] {
-        data.cards.filter { $0.groupId == groupId }
+        data.cards.filter { $0.groupId == groupId && !$0.isTrashed }
+    }
+
+    // MARK: - 回收站
+
+    /// 当前未被移入回收站的条目
+    var activeCards: [Card] {
+        data.cards.filter { !$0.isTrashed }
+    }
+
+    /// 将条目移入回收站（软删除）
+    func moveCardToTrash(id: String) {
+        guard let idx = data.cards.firstIndex(where: { $0.id == id }) else { return }
+        data.cards[idx].deletedAt = Date()
+        save()
+    }
+
+    /// 从回收站恢复条目
+    func restoreCard(id: String) {
+        guard let idx = data.cards.firstIndex(where: { $0.id == id }) else { return }
+        data.cards[idx].deletedAt = nil
+        save()
+    }
+
+    /// 彻底删除单个条目
+    func permanentlyDeleteCard(id: String) {
+        data.cards.removeAll { $0.id == id }
+        save()
+    }
+
+    /// 清空回收站
+    func emptyTrash() {
+        data.cards.removeAll { $0.isTrashed }
+        save()
+    }
+
+    /// 回收站中的条目（按删除时间倒序）
+    var trashedCards: [Card] {
+        data.cards
+            .filter { $0.isTrashed }
+            .sorted { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
+    }
+
+    var trashedCount: Int {
+        data.cards.reduce(0) { $0 + ($1.isTrashed ? 1 : 0) }
+    }
+
+    // MARK: - 收藏夹
+
+    /// 切换条目的收藏状态
+    func toggleFavorite(cardID: String) {
+        guard let idx = data.cards.firstIndex(where: { $0.id == cardID }) else { return }
+        data.cards[idx].isFavorite = !data.cards[idx].isFavorited
+        save()
+    }
+
+    var favoriteCards: [Card] {
+        data.cards.filter { $0.isFavorited && !$0.isTrashed }
+    }
+
+    var favoriteCount: Int {
+        data.cards.reduce(0) { $0 + ($1.isFavorited && !$1.isTrashed ? 1 : 0) }
     }
 
     // MARK: - 工具

@@ -23,11 +23,11 @@ struct GroupEditView: View {
             // 标题栏
             HStack {
                 Text(isEditing ? "编辑分组" : "新建分组")
-                    .font(.system(size: 16, weight: .semibold))
+                    .scaledFont(size: 16, weight: .semibold)
                 Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .medium))
+                        .scaledFont(size: 13, weight: .medium)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -42,17 +42,17 @@ struct GroupEditView: View {
                 // 分组名称
                 VStack(alignment: .leading, spacing: 6) {
                     Text("分组名称")
-                        .font(.system(size: 12, weight: .medium))
+                        .scaledFont(size: 12, weight: .medium)
                         .foregroundColor(.secondary)
                     TextField("例如：生产环境", text: $name)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 14))
+                        .scaledFont(size: 14)
                 }
 
                 // 颜色选择
                 VStack(alignment: .leading, spacing: 6) {
                     Text("颜色")
-                        .font(.system(size: 12, weight: .medium))
+                        .scaledFont(size: 12, weight: .medium)
                         .foregroundColor(.secondary)
                     HStack(spacing: 10) {
                         // 当前颜色预览
@@ -75,7 +75,7 @@ struct GroupEditView: View {
                                 )
                                 .overlay(
                                     Image(systemName: "checkmark")
-                                        .font(.system(size: 9, weight: .bold))
+                                        .scaledFont(size: 9, weight: .bold)
                                         .foregroundColor(.white)
                                         .opacity(selectedColor == color ? 1 : 0)
                                 )
@@ -86,7 +86,7 @@ struct GroupEditView: View {
 
                         Button(action: chooseRandomColor) {
                             Image(systemName: "dice.fill")
-                                .font(.system(size: 11, weight: .semibold))
+                                .scaledFont(size: 11, weight: .semibold)
                                 .foregroundColor(.secondary)
                                 .frame(width: 22, height: 22)
                                 .background(Color.secondary.opacity(0.1))
@@ -108,7 +108,7 @@ struct GroupEditView: View {
                                 .frame(width: 22, height: 22)
                                 .overlay(
                                     Image(systemName: "plus")
-                                        .font(.system(size: 11, weight: .bold))
+                                        .scaledFont(size: 11, weight: .bold)
                                         .foregroundColor(.white)
                                 )
                                 .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
@@ -150,6 +150,7 @@ struct GroupEditView: View {
                 selectedColor = Group.defaultColors[0]
             }
         }
+        .appFontSizeScaled()
     }
 
     private func chooseRandomColor() {
@@ -235,11 +236,11 @@ struct ColorPickerSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text("选择颜色")
-                    .font(.system(size: 15, weight: .semibold))
+                    .scaledFont(size: 15, weight: .semibold)
                 Spacer()
                 Button(action: { isPresented = false }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 13, weight: .medium))
+                        .scaledFont(size: 13, weight: .medium)
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)

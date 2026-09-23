@@ -3,6 +3,23 @@
     <channel>
         <title>XRecord</title>
         <item>
+            <title>1.4.1</title>
+            <pubDate>Wed, 23 Sep 2026 17:38:44 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>19</sparkle:version>
+            <sparkle:shortVersionString>1.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.4.1
+
+- 修复点击“更新并重启”后菜单栏常驻进程不会自动退出的问题。
+- 修复删除分类后恢复条目时，条目可能指向已不存在分类的问题。
+- 删除唯一分类后恢复条目时，自动创建“已恢复”分类，确保条目始终可管理。
+- 修复自定义条目分享时，空白小项名称生成异常格式的问题。
+- 同时支持 Apple 芯片与 Intel Mac。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.4.1/XRecord-v1.4.1.dmg" length="6332976" type="application/octet-stream" sparkle:edSignature="9yD3nnCuUX8rbEJHfxeqGfzvC3IewyEJwi2Ck+I9o/KlLPIor2ztkm+nQwgMuv9sNsMFfki8SbHdAxJHIGMpCA=="/>
+        </item>
+        <item>
             <title>1.4.0</title>
             <pubDate>Wed, 23 Sep 2026 17:20:08 +0800</pubDate>
             <link>https://github.com/juiceiie/XRecord</link>

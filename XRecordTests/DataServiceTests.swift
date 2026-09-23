@@ -60,6 +60,81 @@ final class DataServiceTests: XCTestCaseBase {
         )
     }
 
+    func testCustomCardSharingTextUsesFallbackForBlankFieldName() {
+        let card = Card(
+            groupId: "group-id",
+            name: "自定义条目",
+            url: "",
+            username: "",
+            password: "",
+            note: "",
+            kind: .custom,
+            customFields: [CustomField(label: "   ", value: "内容")]
+        )
+
+        XCTAssertTrue(card.sharingText(groupName: "资料").contains("小项：内容"))
+        XCTAssertFalse(card.sharingText(groupName: "资料").contains("   ：内容"))
+    }
+
+    func testRestoringCardFromDeletedGroupUsesExistingGroup() {
+        let service = makeDataService(encryption: makeEncryption())
+        service.createFile(at: tempURL("restore-existing-group.xrecord"))
+
+        let deletedGroup = Group(name: "待删除", colorHex: "#111111")
+        let fallbackGroup = Group(name: "保留", colorHex: "#222222")
+        let card = Card(
+            groupId: deletedGroup.id,
+            name: "测试条目",
+            url: "",
+            username: "user",
+            password: "password",
+            note: ""
+        )
+        service.addGroup(deletedGroup)
+        service.addGroup(fallbackGroup)
+        service.addCard(card)
+
+        service.deleteGroup(id: deletedGroup.id)
+        XCTAssertTrue(service.data.cards[0].isTrashed)
+
+        service.restoreCard(id: card.id)
+
+        XCTAssertFalse(service.data.cards[0].isTrashed)
+        XCTAssertEqual(service.data.cards[0].groupId, fallbackGroup.id)
+    }
+
+    func testRestoringCardFromOnlyDeletedGroupCreatesRecoveryGroup() {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("restore-recovery-group.xrecord")
+        service.createFile(at: url)
+
+        let deletedGroup = Group(name: "唯一分类", colorHex: "#111111")
+        let card = Card(
+            groupId: deletedGroup.id,
+            name: "测试条目",
+            url: "",
+            username: "user",
+            password: "password",
+            note: ""
+        )
+        service.addGroup(deletedGroup)
+        service.addCard(card)
+        service.deleteGroup(id: deletedGroup.id)
+
+        service.restoreCard(id: card.id)
+
+        XCTAssertEqual(service.data.groups.count, 1)
+        XCTAssertEqual(service.data.groups[0].name, "已恢复")
+        XCTAssertEqual(service.data.cards[0].groupId, service.data.groups[0].id)
+        XCTAssertFalse(service.data.cards[0].isTrashed)
+
+        let reloaded = makeDataService(encryption: encryption)
+        XCTAssertTrue(reloaded.bind(to: url))
+        XCTAssertEqual(reloaded.data.cards[0].groupId, reloaded.data.groups[0].id)
+        XCTAssertFalse(reloaded.data.cards[0].isTrashed)
+    }
+
     func testMoveGroupReordersAndPersistsGroups() throws {
         let encryption = makeEncryption()
         let service = makeDataService(encryption: encryption)

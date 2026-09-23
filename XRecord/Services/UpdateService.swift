@@ -38,4 +38,16 @@ final class UpdateService: NSObject, ObservableObject, SPUUpdaterDelegate {
         automaticallyChecksForUpdates = enabled
     }
 
+    func updaterShouldRelaunchApplication(_ updater: SPUUpdater) -> Bool {
+        true
+    }
+
+    func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        // XRecord can remain alive only in the menu bar after its main window closes.
+        // Explicitly terminate that process once Sparkle is ready to replace the app.
+        DispatchQueue.main.async {
+            NSApp.terminate(nil)
+        }
+    }
+
 }

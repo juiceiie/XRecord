@@ -520,7 +520,7 @@ class DataService: ObservableObject {
     func deleteGroup(id: String) {
         // 分组下的条目移入回收站，便于恢复
         let now = Date()
-        for idx in data.cards.indices where data.cards[idx].groupId == id {
+        for idx in data.cards.indices where data.cards[idx].groupId == id && !data.cards[idx].isTrashed {
             data.cards[idx].deletedAt = now
         }
         data.groups.removeAll { $0.id == id }
@@ -570,6 +570,19 @@ class DataService: ObservableObject {
     /// 从回收站恢复条目
     func restoreCard(id: String) {
         guard let idx = data.cards.firstIndex(where: { $0.id == id }) else { return }
+
+        // 删除分组会把其条目一并移入回收站。恢复这类条目时，不能继续
+        // 引用已经不存在的分组，否则条目会成为只能在“全部”中看到的孤立数据。
+        if !data.groups.contains(where: { $0.id == data.cards[idx].groupId }) {
+            if let fallbackGroup = data.groups.first {
+                data.cards[idx].groupId = fallbackGroup.id
+            } else {
+                let recoveredGroup = Group(name: "已恢复", colorHex: Group.defaultColors[0])
+                data.groups.append(recoveredGroup)
+                data.cards[idx].groupId = recoveredGroup.id
+            }
+        }
+
         data.cards[idx].deletedAt = nil
         save()
     }

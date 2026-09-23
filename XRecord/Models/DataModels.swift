@@ -113,7 +113,8 @@ struct Card: Codable, Identifiable, Equatable {
 
         if isCustom {
             for field in effectiveCustomFields where !field.value.isEmpty {
-                lines.append("\(field.label)：\(field.value)")
+                let label = field.label.trimmingCharacters(in: .whitespacesAndNewlines)
+                lines.append("\(label.isEmpty ? "小项" : label)：\(field.value)")
             }
         } else {
             lines.append("账号：\(username)")

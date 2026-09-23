@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - 数据模型
 
-struct AppData: Codable {
+struct AppData: Codable, Equatable {
     var groups: [Group]
     var cards: [Card]
     var appTitle: String
@@ -107,21 +107,32 @@ struct Card: Codable, Identifiable, Equatable {
         var lines = [
             "【XRecord笔记本】",
             "分类：\(groupName ?? "未分类")",
-            "名称：\(name)",
-            "\(targetLabel)：\(targetValue ?? url)"
+            "名称：\(name)"
         ]
 
+        let resolvedTarget = targetValue ?? url
+        if !resolvedTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("\(targetLabel)：\(resolvedTarget)")
+        }
+
         if isCustom {
-            for field in effectiveCustomFields where !field.value.isEmpty {
+            for field in effectiveCustomFields
+            where !field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let label = field.label.trimmingCharacters(in: .whitespacesAndNewlines)
                 lines.append("\(label.isEmpty ? "小项" : label)：\(field.value)")
             }
         } else {
-            lines.append("账号：\(username)")
-            lines.append("密码：\(password)")
+            if !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                lines.append("账号：\(username)")
+            }
+            if !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                lines.append("密码：\(password)")
+            }
         }
 
-        lines.append("备注：\(note)")
+        if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            lines.append("备注：\(note)")
+        }
         return lines.joined(separator: "\n")
     }
 

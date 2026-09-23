@@ -104,6 +104,7 @@ final class GlobalHotKeyService: ObservableObject {
 
     @Published private(set) var shortcut: KeyboardShortcut
     @Published private(set) var isRegistered = false
+    @Published private(set) var isEnabled: Bool
 
     var onHotKey: (() -> Void)?
 
@@ -114,9 +115,16 @@ final class GlobalHotKeyService: ObservableObject {
     private let keyCodeKey = "quickSearchHotKey.keyCode"
     private let modifiersKey = "quickSearchHotKey.modifiers"
     private let keyLabelKey = "quickSearchHotKey.keyLabel"
+    private let enabledKey = "quickSearchHotKey.isEnabled"
 
     private init() {
         let defaults = UserDefaults.standard
+        if defaults.object(forKey: enabledKey) != nil {
+            isEnabled = defaults.bool(forKey: enabledKey)
+        } else {
+            isEnabled = true
+            defaults.set(true, forKey: enabledKey)
+        }
         if defaults.object(forKey: keyCodeKey) != nil,
            defaults.object(forKey: modifiersKey) != nil,
            let keyLabel = defaults.string(forKey: keyLabelKey) {
@@ -147,7 +155,7 @@ final class GlobalHotKeyService: ObservableObject {
 
     func start() {
         installHandlerIfNeeded()
-        if hotKeyRef == nil {
+        if isEnabled, hotKeyRef == nil {
             _ = registerShortcut(shortcut)
         }
     }
@@ -157,9 +165,21 @@ final class GlobalHotKeyService: ObservableObject {
     }
 
     func resume() {
-        if hotKeyRef == nil {
+        if isEnabled, hotKeyRef == nil {
             _ = registerShortcut(shortcut)
         }
+    }
+
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else { return }
+        if enabled {
+            guard registerShortcut(shortcut) else { return }
+            isEnabled = true
+        } else {
+            unregisterShortcut()
+            isEnabled = false
+        }
+        UserDefaults.standard.set(isEnabled, forKey: enabledKey)
     }
 
     @discardableResult
@@ -177,13 +197,23 @@ final class GlobalHotKeyService: ObservableObject {
 
         shortcut = candidate
         save(candidate)
+        if !isEnabled {
+            isEnabled = true
+            UserDefaults.standard.set(true, forKey: enabledKey)
+        }
         return true
     }
 
     func restoreDefault() -> Bool {
+        let defaultShortcut = KeyboardShortcut.defaultQuickSearch
+        guard isEnabled else {
+            shortcut = defaultShortcut
+            save(defaultShortcut)
+            return true
+        }
+
         let previous = shortcut
         unregisterShortcut()
-        let defaultShortcut = KeyboardShortcut.defaultQuickSearch
         guard registerShortcut(defaultShortcut) else {
             _ = registerShortcut(previous)
             return false

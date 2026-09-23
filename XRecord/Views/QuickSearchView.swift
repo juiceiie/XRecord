@@ -251,6 +251,11 @@ final class QuickSearchWindowController: NSObject, NSWindowDelegate {
 
     private func open(_ card: Card) {
         guard !card.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            if CredentialPanelPreferences.isEnabled, card.isCredentialPanelEnabled {
+                hide()
+                NotificationCenter.default.post(name: .didOpenLaunchTarget, object: card.id)
+                return
+            }
             NSSound.beep()
             return
         }

@@ -3,6 +3,27 @@
     <channel>
         <title>XRecord</title>
         <item>
+            <title>1.5.0</title>
+            <pubDate>Wed, 23 Sep 2026 21:03:54 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>20</sparkle:version>
+            <sparkle:shortVersionString>1.5.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.5.0
+
+- 自动监听绑定文件的外部变化，iCloud Drive 同步完成后自动刷新密码本。
+- 使用 macOS 文件协调机制安全读写；保存前检测外部变化，冲突时自动保留加密备份。
+- 新增 iCloud 文件下载中、已同步和暂不可用状态，并提供重试入口。
+- “迁移口令”更名为“同步与恢复口令”，明确跨设备解锁用途。
+- 新增极简卡片样式，优化三段式窗口在宽窄尺寸下的布局与详情交互。
+- 自定义小项支持放大查看和编辑长内容，密文显示不再撑开布局。
+- 修复已取消的快速检索快捷键在升级后恢复默认值的问题。
+- 分享内容只复制有实际值的地址、账号、密码、备注和自定义小项。
+- 同时支持 Apple 芯片与 Intel Mac。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.5.0/XRecord-v1.5.0.dmg" length="4836056" type="application/octet-stream" sparkle:edSignature="7sZZKWaWTBdQams1Zg9OYRWIYyzXQmUKoAyiIoQs454DXjHNQAEOg5aqSX2C3FGuBhZ4L3O8Nno/lW/bih1FAQ=="/>
+        </item>
+        <item>
             <title>1.4.1</title>
             <pubDate>Wed, 23 Sep 2026 17:38:44 +0800</pubDate>
             <link>https://github.com/juiceiie/XRecord</link>

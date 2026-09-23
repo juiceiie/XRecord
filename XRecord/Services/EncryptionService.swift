@@ -3,9 +3,9 @@ import CryptoKit
 import CommonCrypto
 import Security
 
-// MARK: - 数据加密服务（Keychain 主密钥 + AES-256-GCM，支持迁移口令）
+// MARK: - 数据加密服务（Keychain 主密钥 + AES-256-GCM，支持同步与恢复口令）
 
-/// 用迁移口令包装后的主密钥（密文，可安全存储）
+/// 用同步与恢复口令包装后的主密钥（密文，可安全存储）
 struct KeyWrap: Codable, Equatable {
     var salt: Data
     var iterations: Int
@@ -66,7 +66,7 @@ final class EncryptionService {
         return key
     }
 
-    /// 写入主密钥（迁移口令解锁后使用）
+    /// 写入主密钥（同步与恢复口令解锁后使用）
     @discardableResult
     func storeMasterKey(_ key: Data) -> Bool {
         guard key.count == keyLength, keyStore.storeMasterKey(key) else { return false }
@@ -74,7 +74,7 @@ final class EncryptionService {
         return true
     }
 
-    // MARK: - 迁移口令包装
+    // MARK: - 同步与恢复口令包装
 
     var storedKeyWrap: KeyWrap? {
         guard let data = defaults.data(forKey: storedWrapKey) else { return nil }
@@ -89,7 +89,7 @@ final class EncryptionService {
         }
     }
 
-    /// 用迁移口令包装主密钥，便于跨设备迁移
+    /// 用同步与恢复口令包装主密钥，便于跨设备迁移
     func makeKeyWrap(masterKey: Data, passphrase: String) -> KeyWrap? {
         do {
             let salt = Self.randomData(count: 16)
@@ -97,12 +97,12 @@ final class EncryptionService {
             guard let wrapped = try AES.GCM.seal(masterKey, using: wrappingKey).combined else { return nil }
             return KeyWrap(salt: salt, iterations: wrapperIterations, data: wrapped)
         } catch {
-            print("生成迁移口令失败: \(error)")
+            print("生成同步与恢复口令失败: \(error)")
             return nil
         }
     }
 
-    /// 用迁移口令解开主密钥
+    /// 用同步与恢复口令解开主密钥
     func unwrapMasterKey(from wrap: KeyWrap, passphrase: String) -> Data? {
         do {
             let wrappingKey = deriveKey(password: passphrase, salt: wrap.salt, iterations: wrap.iterations)

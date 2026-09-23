@@ -15,6 +15,13 @@ private enum CardPaneMode {
     case edit(Card)
 }
 
+enum SidebarDestination: Equatable {
+    case all
+    case favorites
+    case trash
+    case group(String)
+}
+
 struct ContentView: View {
     @EnvironmentObject var dataService: DataService
     @StateObject private var updateServiceWrapper: UpdateServiceWrapper
@@ -43,6 +50,10 @@ struct ContentView: View {
     private var thirdColumnWidth: Double = 320
     @State private var thirdColumnDragStart: Double?
     @State private var paneMode: CardPaneMode = .empty
+    @State private var embeddedEditorIsDirty = false
+    @State private var embeddedSaveRequestID: UUID?
+    @State private var pendingSidebarDestination: SidebarDestination?
+    @State private var showUnsavedChangesAlert = false
 
     private var presentationMode: CardPresentationMode {
         CardPresentationMode(rawValue: presentationModeRaw) ?? .popup
@@ -50,53 +61,79 @@ struct ContentView: View {
 
     private var isThreeColumn: Bool { presentationMode == .threeColumn }
 
+    private var currentSectionTitle: String {
+        if showsTrash { return "回收站" }
+        if showsFavorites { return "收藏夹" }
+        if let group = dataService.data.groups.first(where: { $0.id == selectedGroupId }) {
+            return group.name
+        }
+        return "全部记录"
+    }
+
+    private var minimumCardListWidth: CGFloat {
+        let font = NSFont.systemFont(
+            ofSize: 15 * AppearancePreferences.fontScale,
+            weight: .semibold
+        )
+        let titleWidth = (currentSectionTitle as NSString).size(withAttributes: [.font: font]).width
+        // 标题色点/图标、搜索框、新增按钮、间距及工具栏两侧留白。
+        return ceil(titleWidth + 226)
+    }
+
     var body: some View {
         ZStack {
+            if dataService.hasBoundFile && dataService.fileAvailability.blocksAccess {
+                FileUnavailableView()
+                    .frame(minWidth: 700, minHeight: 450)
             // 文件无法解密时显示解锁界面
-            if dataService.isLocked {
+            } else if dataService.isLocked {
                 LockedView()
                     .frame(minWidth: 700, minHeight: 450)
             } else if !dataService.hasBoundFile {
                 WelcomeView(showBindFile: $showBindFile)
                     .frame(minWidth: 700, minHeight: 450)
             } else {
-                HStack(spacing: 0) {
+                GeometryReader { geometry in
+                    HStack(spacing: 0) {
                 // 左侧分组导航
-                    GroupListView(
-                        selectedGroupId: $selectedGroupId,
-                        showsFavorites: $showsFavorites,
-                        showsTrash: $showsTrash,
-                        showAddGroup: $showAddGroup,
-                        editingGroup: $editingGroup,
-                        showSettings: $showSettings,
-                        background: isThreeColumn ? Color.paneSidebarBackground : Color(nsColor: .windowBackgroundColor)
-                    )
-                    .frame(width: 220)
+                        GroupListView(
+                            selectedGroupId: $selectedGroupId,
+                            showsFavorites: $showsFavorites,
+                            showsTrash: $showsTrash,
+                            showAddGroup: $showAddGroup,
+                            editingGroup: $editingGroup,
+                            showSettings: $showSettings,
+                            onNavigate: requestSidebarNavigation,
+                            background: isThreeColumn ? Color.paneSidebarBackground : Color(nsColor: .windowBackgroundColor)
+                        )
+                        .frame(width: 220)
 
-                    Divider()
+                        Divider()
 
-                    // 右侧内容区
-                    CardListView(
-                        selectedGroupId: $selectedGroupId,
-                        showsFavorites: $showsFavorites,
-                        showsTrash: $showsTrash,
-                        searchText: $searchText,
-                        selectedCardId: paneSelectedCardId,
-                        onViewCard: { handleViewCard($0) },
-                        onPrepareAddCard: { groupId, kind in handleAddCard(groupId: groupId, kind: kind) },
-                        onTrashCard: { handleTrashCard($0) },
-                        onEditCard: { handleEditCard($0) },
-                        background: isThreeColumn ? Color.paneListBackground : Color(nsColor: .controlBackgroundColor)
-                    )
+                        // 右侧内容区
+                        CardListView(
+                            selectedGroupId: $selectedGroupId,
+                            showsFavorites: $showsFavorites,
+                            showsTrash: $showsTrash,
+                            searchText: $searchText,
+                            selectedCardId: paneSelectedCardId,
+                            onViewCard: { handleViewCard($0) },
+                            onPrepareAddCard: { groupId, kind in handleAddCard(groupId: groupId, kind: kind) },
+                            background: isThreeColumn ? Color.paneListBackground : Color(nsColor: .controlBackgroundColor)
+                        )
+                        .frame(minWidth: 0, maxWidth: .infinity)
+                        .layoutPriority(1)
 
-                    // 第三段：详情栏（仅三段式模式，有内容时从右侧滑出）
-                    if isThreeColumn && paneIsVisible {
-                        paneResizeHandle
-                            .transition(.move(edge: .trailing))
-                        cardDetailPane
-                            .frame(width: CGFloat(thirdColumnWidth))
-                            .transition(.move(edge: .trailing))
+                        // 第三段：详情栏（仅三段式模式，有内容时从右侧滑出）
+                        if isThreeColumn && paneIsVisible {
+                            paneResizeHandle
+                                .transition(.move(edge: .trailing))
+                            cardDetailPane
+                                .frame(width: resolvedThirdColumnWidth(for: geometry.size.width))
+                                .transition(.move(edge: .trailing))
+                        }
                     }
+                    .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
                 }
                 .frame(minWidth: 700, minHeight: 450)
                 .animation(.easeInOut(duration: 0.22), value: paneIsVisible)
@@ -115,9 +152,7 @@ struct ContentView: View {
                 .onReceive(NotificationCenter.default.publisher(for: .selectGroup)) { notification in
                     guard let groupId = notification.object as? String,
                           dataService.data.groups.contains(where: { $0.id == groupId }) else { return }
-                    selectedGroupId = groupId
-                    showsFavorites = false
-                    showsTrash = false
+                    requestSidebarNavigation(.group(groupId))
                 }
                 .onChange(of: dataService.data.cards) { cards in
                     clearPaneIfCardRemoved(cards)
@@ -130,8 +165,8 @@ struct ContentView: View {
                         isPresented: $showAddGroup,
                         editingGroup: $editingGroup,
                         onGroupCreated: { newGroupId in
-                            // 新建分组后自动选中它
-                            selectedGroupId = newGroupId
+                            paneMode = .empty
+                            applySidebarDestination(.group(newGroupId))
                         }
                     )
                 }
@@ -147,9 +182,21 @@ struct ContentView: View {
         .background(
             WindowAccessor { window in
                 // 三段式模式需要更宽的最小窗口，保证三栏都可用
-                let minWidth: CGFloat = isThreeColumn ? 900 : 700
+                let contentMinimumWidth = 220 + minimumCardListWidth
+                    + (isThreeColumn && paneIsVisible ? 270 : 0)
+                let minWidth: CGFloat = max(isThreeColumn ? 1000 : 700, contentMinimumWidth)
                 if window.minSize.width != minWidth {
                     window.minSize = NSSize(width: minWidth, height: 450)
+                }
+                if isThreeColumn, window.frame.width < minWidth {
+                    var frame = window.frame
+                    let previousMaxX = frame.maxX
+                    frame.size.width = minWidth
+                    frame.origin.x = previousMaxX - minWidth
+                    if let visibleFrame = window.screen?.visibleFrame, frame.minX < visibleFrame.minX {
+                        frame.origin.x = visibleFrame.minX
+                    }
+                    window.setFrame(frame, display: true, animate: true)
                 }
             }
         )
@@ -165,8 +212,8 @@ struct ContentView: View {
                 isPresented: $showMigrationPrompt,
                 hasExisting: false,
                 onSave: { dataService.setMigrationPassphrase($0) },
-                titleOverride: "建议设置迁移口令",
-                introOverride: "主密钥保存在本机钥匙串，日常无需输入密码。设置迁移口令后，才能把数据文件复制到其他 Mac 解锁；否则数据升级后换设备将无法打开。",
+                titleOverride: "建议设置同步与恢复口令",
+                introOverride: "主密钥保存在本机钥匙串，日常无需输入密码。设置同步与恢复口令后，才能在其他 Mac 解锁通过 iCloud Drive 或手动复制的数据文件。",
                 cancelButtonTitle: "以后再说"
             )
         }
@@ -184,13 +231,24 @@ struct ContentView: View {
                             groupId: card.groupId
                         )
                     }
+                },
+                onDelete: {
+                    viewingCard = nil
+                    dataService.moveCardToTrash(id: card.id)
                 }
             )
+        }
+        .alert("编辑内容尚未保存", isPresented: $showUnsavedChangesAlert) {
+            Button("取消", role: .cancel) { pendingSidebarDestination = nil }
+            Button("不保存", role: .destructive) { discardEditorAndNavigate() }
+            Button("保存") { embeddedSaveRequestID = UUID() }
+        } message: {
+            Text("切换分类前是否保存当前条目的修改？")
         }
         .appFontSizeScaled()
     }
 
-    /// 首次绑定或老版本升级后，提醒用户设置迁移口令（只提醒一次）
+    /// 首次绑定或老版本升级后，提醒用户设置同步与恢复口令（只提醒一次）
     private func considerMigrationPrompt() {
         guard dataService.hasBoundFile, !dataService.hasMigrationPassphrase else { return }
         let promptedKey = "xrecord_didPromptMigrationPassphrase"
@@ -246,6 +304,62 @@ struct ContentView: View {
         }
     }
 
+    private func requestSidebarNavigation(_ destination: SidebarDestination) {
+        guard isThreeColumn else {
+            applySidebarDestination(destination)
+            return
+        }
+
+        switch paneMode {
+        case .view:
+            paneMode = .empty
+            applySidebarDestination(destination)
+        case .edit, .add:
+            if embeddedEditorIsDirty {
+                pendingSidebarDestination = destination
+                showUnsavedChangesAlert = true
+            } else {
+                paneMode = .empty
+                applySidebarDestination(destination)
+            }
+        case .empty:
+            applySidebarDestination(destination)
+        }
+    }
+
+    private func applySidebarDestination(_ destination: SidebarDestination) {
+        switch destination {
+        case .all:
+            selectedGroupId = nil
+            showsFavorites = false
+            showsTrash = false
+        case .favorites:
+            selectedGroupId = nil
+            showsFavorites = true
+            showsTrash = false
+        case .trash:
+            selectedGroupId = nil
+            showsFavorites = false
+            showsTrash = true
+        case .group(let groupID):
+            selectedGroupId = groupID
+            showsFavorites = false
+            showsTrash = false
+        }
+    }
+
+    private func discardEditorAndNavigate() {
+        paneMode = .empty
+        embeddedEditorIsDirty = false
+        completePendingNavigation()
+    }
+
+    private func completePendingNavigation() {
+        guard let destination = pendingSidebarDestination else { return }
+        pendingSidebarDestination = nil
+        applySidebarDestination(destination)
+    }
+
     // MARK: - 第三段（详情栏）
 
     private var paneSelectedCardId: String? {
@@ -260,6 +374,16 @@ struct ContentView: View {
     private var paneIsVisible: Bool {
         if case .empty = paneMode { return false }
         return true
+    }
+
+    private func resolvedThirdColumnWidth(for availableWidth: CGFloat) -> CGFloat {
+        let sidebarWidth: CGFloat = 220
+        let dividersAndHandle: CGFloat = 10
+        let maximumWidth = max(
+            260,
+            availableWidth - sidebarWidth - minimumCardListWidth - dividersAndHandle
+        )
+        return min(CGFloat(thirdColumnWidth), maximumWidth)
     }
 
     private var paneDismissBinding: Binding<Bool> {
@@ -339,7 +463,8 @@ struct ContentView: View {
                     dataService: dataService,
                     embedded: true,
                     onClose: { paneMode = .empty },
-                    onEdit: { paneMode = .edit(card) }
+                    onEdit: { paneMode = .edit(card) },
+                    onDelete: { handleTrashCard(card) }
                 )
 
             case .add(let groupId, let kind):
@@ -349,7 +474,17 @@ struct ContentView: View {
                     groupId: groupId,
                     initialKind: kind,
                     embedded: true,
-                    onSaved: { paneMode = .view($0) }
+                    onSaved: {
+                        embeddedEditorIsDirty = false
+                        if pendingSidebarDestination != nil {
+                            paneMode = .empty
+                            completePendingNavigation()
+                        } else {
+                            paneMode = .view($0)
+                        }
+                    },
+                    onDirtyChange: { embeddedEditorIsDirty = $0 },
+                    saveRequestID: embeddedSaveRequestID
                 )
                 .id("add-\(groupId)-\(kind.rawValue)")
 
@@ -359,7 +494,17 @@ struct ContentView: View {
                     editingCard: card,
                     groupId: card.groupId,
                     embedded: true,
-                    onSaved: { paneMode = .view($0) }
+                    onSaved: {
+                        embeddedEditorIsDirty = false
+                        if pendingSidebarDestination != nil {
+                            paneMode = .empty
+                            completePendingNavigation()
+                        } else {
+                            paneMode = .view($0)
+                        }
+                    },
+                    onDirtyChange: { embeddedEditorIsDirty = $0 },
+                    saveRequestID: embeddedSaveRequestID
                 )
                 .id("edit-\(card.id)")
             }
@@ -457,7 +602,7 @@ struct LockedView: View {
             }
 
             HStack(spacing: 12) {
-                Button("输入口令解锁") {
+                Button("输入恢复口令解锁") {
                     dataService.retryUnlock()
                 }
                 .buttonStyle(.borderedProminent)
@@ -466,6 +611,54 @@ struct LockedView: View {
                     dataService.unbindForReselect()
                 }
                 .buttonStyle(.bordered)
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - 数据文件暂不可用界面
+
+struct FileUnavailableView: View {
+    @EnvironmentObject var dataService: DataService
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Spacer()
+
+            if dataService.fileAvailability == .downloading {
+                ProgressView()
+                    .controlSize(.large)
+                Text("正在准备密码本")
+                    .scaledFont(size: 22, weight: .bold)
+            } else {
+                Image(systemName: "exclamationmark.icloud.fill")
+                    .scaledFont(size: 60)
+                    .foregroundColor(.orange)
+                Text("数据文件暂不可用")
+                    .scaledFont(size: 22, weight: .bold)
+            }
+
+            Text(dataService.fileAvailability.description)
+                .scaledFont(size: 14)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 440)
+
+            Text(dataService.filePathDisplay)
+                .scaledFont(size: 11, design: .monospaced)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 480)
+
+            HStack(spacing: 12) {
+                Button("重试") { dataService.retryFileAccess() }
+                    .buttonStyle(.borderedProminent)
+                Button("重新绑定数据文件") { dataService.unbindForReselect() }
+                    .buttonStyle(.bordered)
             }
 
             Spacer()
@@ -605,6 +798,7 @@ struct GroupListView: View {
     @Binding var showAddGroup: Bool
     @Binding var editingGroup: Group?
     @Binding var showSettings: Bool
+    let onNavigate: (SidebarDestination) -> Void
     var background: Color = Color(nsColor: .windowBackgroundColor)
 
     var body: some View {
@@ -641,22 +835,14 @@ struct GroupListView: View {
                     AllGroupsRowView(
                         isSelected: selectedGroupId == nil && !showsFavorites && !showsTrash,
                         totalCount: dataService.activeCards.count,
-                        onSelect: {
-                            selectedGroupId = nil
-                            showsFavorites = false
-                            showsTrash = false
-                        }
+                        onSelect: { onNavigate(.all) }
                     )
 
                     // 收藏夹
                     FavoritesRowView(
                         isSelected: showsFavorites,
                         count: dataService.favoriteCount,
-                        onSelect: {
-                            selectedGroupId = nil
-                            showsFavorites = true
-                            showsTrash = false
-                        }
+                        onSelect: { onNavigate(.favorites) }
                     )
 
                     Divider()
@@ -667,11 +853,7 @@ struct GroupListView: View {
                             group: group,
                             isSelected: selectedGroupId == group.id,
                             count: dataService.groupCount(for: group.id),
-                            onSelect: {
-                                selectedGroupId = group.id
-                                showsFavorites = false
-                                showsTrash = false
-                            },
+                            onSelect: { onNavigate(.group(group.id)) },
                             onEdit: {
                                 editingGroup = group
                                 showAddGroup = true
@@ -679,7 +861,7 @@ struct GroupListView: View {
                             onDelete: {
                                 dataService.deleteGroup(id: group.id)
                                 if selectedGroupId == group.id {
-                                    selectedGroupId = nil
+                                    onNavigate(.all)
                                 }
                             }
                         )
@@ -698,11 +880,7 @@ struct GroupListView: View {
             TrashRowView(
                 isSelected: showsTrash,
                 count: dataService.trashedCount,
-                onSelect: {
-                    selectedGroupId = nil
-                    showsFavorites = false
-                    showsTrash = true
-                }
+                onSelect: { onNavigate(.trash) }
             )
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -944,9 +1122,13 @@ struct CardListView: View {
     var selectedCardId: String? = nil
     var onViewCard: ((Card) -> Void)? = nil
     var onPrepareAddCard: ((String, CardKind) -> Void)? = nil
-    var onTrashCard: ((Card) -> Void)? = nil
-    let onEditCard: (Card) -> Void
     var background: Color = Color(nsColor: .controlBackgroundColor)
+    @AppStorage(AppearancePreferences.cardListStyleKey)
+    private var cardListStyleRaw = CardListStyle.regular.rawValue
+
+    private var cardListStyle: CardListStyle {
+        CardListStyle(rawValue: cardListStyleRaw) ?? .regular
+    }
 
     var selectedGroup: Group? {
         dataService.data.groups.first { $0.id == selectedGroupId }
@@ -984,39 +1166,47 @@ struct CardListView: View {
         VStack(spacing: 0) {
             // 顶部工具栏
             HStack(spacing: 12) {
-                if showsTrash {
+                SwiftUI.Group {
+                    if showsTrash {
                     HStack(spacing: 6) {
                         Image(systemName: "trash")
                             .scaledFont(size: 12)
                             .foregroundColor(.secondary)
                         Text("回收站")
                             .scaledFont(size: 15, weight: .semibold)
+                            .lineLimit(1)
                     }
-                } else if showsFavorites {
+                    } else if showsFavorites {
                     HStack(spacing: 6) {
                         Image(systemName: "star.fill")
                             .scaledFont(size: 12)
                             .foregroundColor(.yellow)
                         Text("收藏夹")
                             .scaledFont(size: 15, weight: .semibold)
+                            .lineLimit(1)
                     }
-                } else if let group = selectedGroup {
+                    } else if let group = selectedGroup {
                     HStack(spacing: 6) {
                         Circle()
                             .fill(Color(hex: group.colorHex))
                             .frame(width: 10, height: 10)
                         Text(group.name)
                             .scaledFont(size: 15, weight: .semibold)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
-                } else {
+                    } else {
                     HStack(spacing: 6) {
                         Image(systemName: "tray.full")
                             .scaledFont(size: 11)
                             .foregroundColor(.blue)
                         Text("全部记录")
                             .scaledFont(size: 15, weight: .semibold)
+                            .lineLimit(1)
+                    }
                     }
                 }
+                .layoutPriority(1)
 
                 Spacer()
 
@@ -1028,7 +1218,7 @@ struct CardListView: View {
                     TextField("搜索...", text: $searchText)
                         .textFieldStyle(.plain)
                         .scaledFont(size: 13)
-                        .frame(width: 160)
+                        .frame(minWidth: 72, maxWidth: 160)
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 30)
@@ -1093,12 +1283,6 @@ struct CardListView: View {
                     selectedCardId: selectedCardId,
                     onView: { card in
                         onViewCard?(card)
-                    },
-                    onEdit: { card in
-                        onEditCard(card)
-                    },
-                    onDelete: { card in
-                        trash(card)
                     }
                 )
             } else {
@@ -1119,33 +1303,39 @@ struct CardListView: View {
         }
     }
 
-    private func trash(_ card: Card) {
-        if let onTrashCard {
-            onTrashCard(card)
-        } else {
-            dataService.moveCardToTrash(id: card.id)
-        }
-    }
-
+    @ViewBuilder
     private func cardsGrid(_ cards: [Card]) -> some View {
         ScrollView {
-            LazyVGrid(columns: [
-                GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 14)
-            ], spacing: 14) {
-                ForEach(cards) { card in
-                    CardItemView(
-                        card: card,
-                        dataService: dataService,
-                        isSelected: card.id == selectedCardId,
-                        onView: { onViewCard?(card) },
-                        onEdit: { onEditCard(card) },
-                        onDelete: { trash(card) },
-                        onToggleFavorite: { dataService.toggleFavorite(cardID: card.id) },
-                        showGroupName: true
-                    )
+            if cardListStyle == .compact {
+                LazyVStack(spacing: 8) {
+                    ForEach(cards) { card in
+                        MinimalCardItemView(
+                            card: card,
+                            dataService: dataService,
+                            isSelected: card.id == selectedCardId,
+                            onView: { onViewCard?(card) },
+                            onToggleFavorite: { dataService.toggleFavorite(cardID: card.id) }
+                        )
+                    }
                 }
+                .padding(20)
+            } else {
+                LazyVGrid(columns: [
+                    GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 14)
+                ], spacing: 14) {
+                    ForEach(cards) { card in
+                        CardItemView(
+                            card: card,
+                            dataService: dataService,
+                            isSelected: card.id == selectedCardId,
+                            onView: { onViewCard?(card) },
+                            onToggleFavorite: { dataService.toggleFavorite(cardID: card.id) },
+                            showGroupName: true
+                        )
+                    }
+                }
+                .padding(20)
             }
-            .padding(20)
         }
     }
 
@@ -1280,8 +1470,12 @@ struct GroupCardList: View {
     let searchText: String
     let selectedCardId: String?
     let onView: (Card) -> Void
-    let onEdit: (Card) -> Void
-    let onDelete: (Card) -> Void
+    @AppStorage(AppearancePreferences.cardListStyleKey)
+    private var cardListStyleRaw = CardListStyle.regular.rawValue
+
+    private var cardListStyle: CardListStyle {
+        CardListStyle(rawValue: cardListStyleRaw) ?? .regular
+    }
 
     private var groupCards: Binding<[Card]> {
         Binding(
@@ -1323,28 +1517,47 @@ struct GroupCardList: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                LazyVGrid(columns: [
-                    GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 14)
-                ], spacing: 14) {
-                    ForEach(filteredGroupCards) { card in
-                        CardItemView(
-                            card: card,
-                            dataService: DataService.shared,
-                            isSelected: card.id == selectedCardId,
-                            onView: { onView(card) },
-                            onEdit: { onEdit(card) },
-                            onDelete: { onDelete(card) },
-                            onToggleFavorite: { DataService.shared.toggleFavorite(cardID: card.id) }
-                        )
-                        .id(card.id)
-                        .draggable(card.id)
-                        .dropDestination(for: String.self) { items, _ in
-                            guard let draggedId = items.first else { return false }
-                            return moveCard(draggedId: draggedId, before: card.id)
+                if cardListStyle == .compact {
+                    LazyVStack(spacing: 8) {
+                        ForEach(filteredGroupCards) { card in
+                            MinimalCardItemView(
+                                card: card,
+                                dataService: DataService.shared,
+                                isSelected: card.id == selectedCardId,
+                                onView: { onView(card) },
+                                onToggleFavorite: { DataService.shared.toggleFavorite(cardID: card.id) }
+                            )
+                            .id(card.id)
+                            .draggable(card.id)
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let draggedId = items.first else { return false }
+                                return moveCard(draggedId: draggedId, before: card.id)
+                            }
                         }
                     }
+                    .padding(20)
+                } else {
+                    LazyVGrid(columns: [
+                        GridItem(.adaptive(minimum: 280, maximum: 400), spacing: 14)
+                    ], spacing: 14) {
+                        ForEach(filteredGroupCards) { card in
+                            CardItemView(
+                                card: card,
+                                dataService: DataService.shared,
+                                isSelected: card.id == selectedCardId,
+                                onView: { onView(card) },
+                                onToggleFavorite: { DataService.shared.toggleFavorite(cardID: card.id) }
+                            )
+                            .id(card.id)
+                            .draggable(card.id)
+                            .dropDestination(for: String.self) { items, _ in
+                                guard let draggedId = items.first else { return false }
+                                return moveCard(draggedId: draggedId, before: card.id)
+                            }
+                        }
+                    }
+                    .padding(20)
                 }
-                .padding(20)
             }
         }
     }
@@ -1369,6 +1582,112 @@ struct GroupCardList: View {
 
 }
 
+// MARK: - 极简卡片
+
+struct MinimalCardItemView: View {
+    let card: Card
+    let dataService: DataService
+    var isSelected = false
+    let onView: () -> Void
+    let onToggleFavorite: () -> Void
+    @State private var isHovered = false
+    @State private var shareCopied = false
+
+    private var group: Group? {
+        dataService.data.groups.first { $0.id == card.groupId }
+    }
+
+    private var groupColor: Color {
+        group.map { Color(hex: $0.colorHex) } ?? .gray
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: card.isCustom ? "doc.text" : "person.crop.rectangle")
+                .scaledFont(size: 17)
+                .foregroundColor(.secondary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(card.name)
+                    .scaledFont(size: 14, weight: .medium)
+                    .lineLimit(1)
+
+                if !card.isCustom, !card.username.isEmpty {
+                    Text("账号：\(card.username)")
+                        .scaledFont(size: 11)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(groupColor)
+                        .frame(width: 6, height: 6)
+                    Text(group?.name ?? "未分类")
+                        .lineLimit(1)
+                }
+                .scaledFont(size: 11)
+                .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if isHovered, isShareableTarget {
+                Button(action: copySharingText) {
+                    Image(systemName: shareCopied ? "checkmark" : "square.and.arrow.up")
+                        .scaledFont(size: 11, weight: .medium)
+                        .foregroundColor(shareCopied ? .green : .secondary)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .help(shareCopied ? "已复制到剪贴板" : "复制条目信息以供分享")
+            }
+
+            Button(action: onToggleFavorite) {
+                Image(systemName: card.isFavorited ? "star.fill" : "star")
+                    .scaledFont(size: 12, weight: .medium)
+                    .foregroundColor(card.isFavorited ? .yellow : .secondary)
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help(card.isFavorited ? "取消收藏" : "收藏")
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 64)
+        .background(Color(nsColor: .textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.accentColor : Color.secondary.opacity(0.15), lineWidth: isSelected ? 2 : 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .onTapGesture(perform: onView)
+        .onHover { isHovered = $0 }
+    }
+
+    private var isShareableTarget: Bool {
+        LaunchTarget.isWebAddress(card.url) || LaunchTarget.isApplication(card.url)
+    }
+
+    private func copySharingText() {
+        let isApplication = LaunchTarget.isApplication(card.url)
+        let sharingText = card.sharingText(
+            groupName: group?.name,
+            targetLabel: isApplication ? "APP" : "地址",
+            targetValue: isApplication
+                ? LaunchTarget.displayName(for: card.url, dataService: dataService)
+                : card.url
+        )
+        Clipboard.copy(sharingText)
+        shareCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            shareCopied = false
+        }
+    }
+}
+
 // MARK: - 单个卡片
 
 struct CardItemView: View {
@@ -1376,15 +1695,12 @@ struct CardItemView: View {
     let dataService: DataService
     var isSelected: Bool = false
     let onView: () -> Void
-    let onEdit: () -> Void
-    let onDelete: () -> Void
     let onToggleFavorite: () -> Void
     var showGroupName: Bool = false
 
     @State private var showPassword = false
     @State private var revealedCustomFieldIDs: Set<String> = []
     @State private var isHovered = false
-    @State private var showDeleteConfirm = false
     @State private var shareCopied = false
 
     private var groupColor: Color {
@@ -1431,20 +1747,6 @@ struct CardItemView: View {
                         .buttonStyle(.plain)
                         .help(shareCopied ? "已复制到剪贴板" : "复制条目信息以供分享")
                     }
-                    Button(action: onEdit) {
-                        Image(systemName: "pencil")
-                            .scaledFont(size: 11)
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("编辑")
-                    Button(action: { showDeleteConfirm = true }) {
-                        Image(systemName: "trash")
-                            .scaledFont(size: 11)
-                            .foregroundColor(.red.opacity(0.7))
-                    }
-                    .buttonStyle(.plain)
-                    .help("删除")
                 }
 
                 // 收藏星标（始终显示在右上角）
@@ -1554,12 +1856,6 @@ struct CardItemView: View {
         .contentShape(RoundedRectangle(cornerRadius: 10))
         .onTapGesture { onView() }
         .onHover { hovering in isHovered = hovering }
-        .alert("移入回收站", isPresented: $showDeleteConfirm) {
-            Button("取消", role: .cancel) {}
-            Button("移入回收站", role: .destructive) { onDelete() }
-        } message: {
-            Text("确定要将「\(card.name)」移入回收站吗？之后可从回收站恢复。")
-        }
     }
 
     private func revealedCustomFieldBinding(_ id: String) -> Binding<Bool> {
@@ -1672,9 +1968,11 @@ struct CardDetailView: View {
     var embedded: Bool = false
     let onClose: () -> Void
     let onEdit: () -> Void
+    let onDelete: () -> Void
 
     @State private var showPassword = false
     @State private var revealedCustomFieldIDs: Set<String> = []
+    @State private var showDeleteConfirm = false
 
     private var group: Group? {
         dataService.data.groups.first { $0.id == card.groupId }
@@ -1767,6 +2065,12 @@ struct CardDetailView: View {
             Divider()
 
             HStack(spacing: 10) {
+                Button(role: .destructive, action: { showDeleteConfirm = true }) {
+                    Label("删除", systemImage: "trash")
+                        .scaledFont(size: 13)
+                }
+                .buttonStyle(.bordered)
+
                 Button(action: onEdit) {
                     Label("编辑", systemImage: "pencil")
                         .scaledFont(size: 13)
@@ -1783,6 +2087,12 @@ struct CardDetailView: View {
         }
         .frame(width: embedded ? nil : 460, height: embedded ? nil : 440)
         .frame(maxWidth: embedded ? .infinity : nil, maxHeight: embedded ? .infinity : nil)
+        .alert("移入回收站", isPresented: $showDeleteConfirm) {
+            Button("取消", role: .cancel) {}
+            Button("移入回收站", role: .destructive) { onDelete() }
+        } message: {
+            Text("确定要将「\(card.name)」移入回收站吗？之后可从回收站恢复。")
+        }
         .appFontSizeScaled()
     }
 
@@ -1949,6 +2259,8 @@ struct SettingsView: View {
     private var forcesRomanPasswordInput = false
     @AppStorage(AppearancePreferences.fontSizeLevelKey)
     private var fontSizeLevelRaw = AppFontSizeLevel.standard.rawValue
+    @AppStorage(AppearancePreferences.cardListStyleKey)
+    private var cardListStyleRaw = CardListStyle.regular.rawValue
     @AppStorage(PresentationPreferences.modeKey)
     private var presentationModeRaw = CardPresentationMode.popup.rawValue
     @State private var autoDismissSecondsText = String(CredentialPanelPreferences.autoDismissSeconds)
@@ -1964,6 +2276,13 @@ struct SettingsView: View {
         Binding(
             get: { CardPresentationMode(rawValue: presentationModeRaw) ?? .popup },
             set: { presentationModeRaw = $0.rawValue }
+        )
+    }
+
+    private var cardListStyle: Binding<CardListStyle> {
+        Binding(
+            get: { CardListStyle(rawValue: cardListStyleRaw) ?? .regular },
+            set: { cardListStyleRaw = $0.rawValue }
         )
     }
 
@@ -2086,6 +2405,36 @@ struct SettingsView: View {
 
                 Divider().padding(.horizontal, 20)
 
+                HStack(spacing: 14) {
+                    Image(systemName: "rectangle.grid.1x2")
+                        .scaledFont(size: 25)
+                        .foregroundColor(.blue)
+                        .frame(width: 34)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("分类卡片样式")
+                            .scaledFont(size: 13, weight: .medium)
+                        Text(cardListStyle.wrappedValue == .compact ? "紧凑显示名称与账号等摘要" : "显示条目的完整卡片内容")
+                            .scaledFont(size: 11)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Picker("", selection: cardListStyle) {
+                        ForEach(CardListStyle.allCases) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 180)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 14)
+
+                Divider().padding(.horizontal, 20)
+
                 // ── 字体大小 ──
                 SectionHeader(title: "字体大小")
 
@@ -2186,6 +2535,23 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                        HStack(spacing: 5) {
+                            if dataService.fileAvailability == .downloading {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            } else {
+                                Image(systemName: fileAvailabilityIcon)
+                            }
+                            Text(dataService.fileAvailability.description)
+                        }
+                        .scaledFont(size: 10)
+                        .foregroundColor(fileAvailabilityColor)
+
+                        if let conflictNotice = dataService.conflictNotice {
+                            Label(conflictNotice, systemImage: "exclamationmark.triangle.fill")
+                                .scaledFont(size: 10)
+                                .foregroundColor(.orange)
+                        }
                     }
 
                     Spacer(minLength: 12)
@@ -2413,11 +2779,11 @@ struct SettingsView: View {
                         .frame(width: 34)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("迁移口令")
+                        Text("同步与恢复口令")
                             .scaledFont(size: 13, weight: .medium)
                         Text(dataService.hasMigrationPassphrase
-                             ? "已设置，可将数据文件复制到其他 Mac 并用口令解锁"
-                             : "未设置，数据文件只能在本机解锁")
+                             ? "已设置，可在其他 Mac 解锁同步或复制的数据文件"
+                             : "未设置，其他 Mac 无法解锁此密码本")
                             .scaledFont(size: 11)
                             .foregroundColor(.secondary)
                     }
@@ -2472,6 +2838,25 @@ struct SettingsView: View {
         return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
     }
 
+    private var fileAvailabilityIcon: String {
+        switch dataService.fileAvailability {
+        case .unbound: return "questionmark.circle"
+        case .local: return "checkmark.circle.fill"
+        case .iCloudAvailable: return "checkmark.icloud.fill"
+        case .downloading: return "icloud.and.arrow.down"
+        case .unavailable: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var fileAvailabilityColor: Color {
+        switch dataService.fileAvailability {
+        case .unavailable: return .orange
+        case .downloading: return .blue
+        case .unbound: return .secondary
+        case .local, .iCloudAvailable: return .green
+        }
+    }
+
     private var preferredBrowserDescription: String {
         guard let path = preferredBrowserPath else { return "网址将使用 macOS 默认浏览器打开" }
         if FileManager.default.fileExists(atPath: path) {
@@ -2524,11 +2909,11 @@ private struct MigrationPassphraseView: View {
     @State private var errorMessage: String?
 
     private var title: String {
-        titleOverride ?? (hasExisting ? "修改迁移口令" : "设置迁移口令")
+        titleOverride ?? (hasExisting ? "修改同步与恢复口令" : "设置同步与恢复口令")
     }
 
     private var intro: String {
-        introOverride ?? "设置后，将数据文件复制到其他 Mac 时，输入此口令即可解锁。口令不会被保存，请务必牢记；遗失后新设备将无法恢复数据。"
+        introOverride ?? "设置后，通过 iCloud Drive 同步或复制到其他 Mac 的数据文件可用此口令解锁。口令不会被保存，请务必牢记。"
     }
 
     var body: some View {
@@ -2556,9 +2941,9 @@ private struct MigrationPassphraseView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                SecureField("迁移口令（至少 6 位）", text: $passphrase)
+                SecureField("同步与恢复口令（至少 6 位）", text: $passphrase)
                     .textFieldStyle(.roundedBorder)
-                SecureField("确认迁移口令", text: $confirm)
+                SecureField("确认同步与恢复口令", text: $confirm)
                     .textFieldStyle(.roundedBorder)
 
                 if let errorMessage {
@@ -2625,7 +3010,21 @@ private struct ShortcutSettingsView: View {
 
                     Spacer()
 
-                    ShortcutRecorderView(service: hotKeyService)
+                    VStack(alignment: .trailing, spacing: 8) {
+                        Toggle(
+                            "启用",
+                            isOn: Binding(
+                                get: { hotKeyService.isEnabled },
+                                set: { hotKeyService.setEnabled($0) }
+                            )
+                        )
+                        .toggleStyle(.switch)
+                        .scaledFont(size: 11)
+
+                        ShortcutRecorderView(service: hotKeyService)
+                            .disabled(!hotKeyService.isEnabled)
+                            .opacity(hotKeyService.isEnabled ? 1 : 0.5)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 16)

@@ -325,6 +325,7 @@ enum AppFontSizeLevel: String, CaseIterable, Identifiable {
 
 enum AppearancePreferences {
     static let fontSizeLevelKey = "appFontSizeLevel"
+    static let cardListStyleKey = "cardListStyle"
 
     static var fontSizeLevel: AppFontSizeLevel {
         guard let raw = UserDefaults.standard.string(forKey: fontSizeLevelKey),
@@ -335,6 +336,20 @@ enum AppearancePreferences {
     }
 
     static var fontScale: CGFloat { fontSizeLevel.scale }
+}
+
+enum CardListStyle: String, CaseIterable, Identifiable {
+    case regular
+    case compact
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .regular: return "常规卡片"
+        case .compact: return "极简卡片"
+        }
+    }
 }
 
 // MARK: - 全局字体缩放

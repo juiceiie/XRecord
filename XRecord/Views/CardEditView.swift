@@ -16,6 +16,10 @@ struct CardEditView: View {
     var embedded: Bool = false
     /// 保存成功后回调（用于三段式切换到查看模式）
     var onSaved: ((Card) -> Void)? = nil
+    /// 三段式切换分类前，用于判断是否需要提示保存。
+    var onDirtyChange: ((Bool) -> Void)? = nil
+    /// 外部保存请求，仅供三段式确认切换时使用。
+    var saveRequestID: UUID? = nil
 
     @State private var kind: CardKind = .standard
     @State private var customFields: [CustomField] = []
@@ -209,9 +213,36 @@ struct CardEditView: View {
                 note = ""
                 showsCredentialPanel = true
             }
+            onDirtyChange?(false)
+        }
+        .onChange(of: hasUnsavedChanges) { dirty in
+            onDirtyChange?(dirty)
+        }
+        .onChange(of: saveRequestID) { requestID in
+            guard requestID != nil else { return }
+            save()
         }
         .onDisappear { currentEditingId = nil }
         .appFontSizeScaled()
+    }
+
+    private var hasUnsavedChanges: Bool {
+        if let card = editingCard {
+            return name != card.name
+                || url != card.url
+                || username != card.username
+                || password != card.password
+                || note != card.note
+                || showsCredentialPanel != card.isCredentialPanelEnabled
+                || customFields != (card.customFields ?? [])
+        }
+
+        return !name.isEmpty
+            || !url.isEmpty
+            || !username.isEmpty
+            || !password.isEmpty
+            || !note.isEmpty
+            || customFields.contains { !$0.label.isEmpty || !$0.value.isEmpty || $0.isSecretField }
     }
 
     private var customFieldsEditor: some View {
@@ -245,27 +276,15 @@ struct CardEditView: View {
                         Text(":")
                             .foregroundColor(.secondary)
 
-                        if field.isSecretField {
-                            HStack(spacing: 6) {
-                                LastCharacterSecureField(
-                                    text: $field.value,
-                                    revealsText: revealedCustomFieldIDs.contains(field.id),
-                                    forcesRomanInput: false
-                                )
-                                .frame(height: 22)
-
-                                Button(action: { toggleCustomFieldReveal(field.id) }) {
-                                    Image(systemName: revealedCustomFieldIDs.contains(field.id) ? "eye.slash" : "eye")
-                                        .foregroundColor(.secondary)
-                                }
-                                .buttonStyle(.plain)
-                                .help(revealedCustomFieldIDs.contains(field.id) ? "隐藏内容" : "显示内容")
-                            }
-                        } else {
-                            TextField("内容", text: $field.value)
-                                .textFieldStyle(.roundedBorder)
-                                .scaledFont(size: 13)
-                        }
+                        CustomFieldValueInput(
+                            text: $field.value,
+                            title: field.label.isEmpty ? "自定义小项" : field.label,
+                            isSecret: field.isSecretField,
+                            revealsSecret: revealedCustomFieldIDs.contains(field.id),
+                            onToggleReveal: { toggleCustomFieldReveal(field.id) }
+                        )
+                        .frame(minWidth: 80, maxWidth: .infinity)
+                        .layoutPriority(1)
 
                         Toggle("密文显示", isOn: Binding(
                             get: { field.isSecretField },
@@ -438,6 +457,104 @@ final class CardEditWindowPresenter: NSObject, ObservableObject, NSWindowDelegat
     }
 }
 
+// MARK: - 自定义小项值输入
+
+private struct CustomFieldValueInput: View {
+    @Binding var text: String
+    let title: String
+    let isSecret: Bool
+    let revealsSecret: Bool
+    let onToggleReveal: () -> Void
+
+    @State private var showsFullValue = false
+
+    private var isLongValue: Bool {
+        text.contains("\n") || text.count > 24
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if isSecret {
+                LastCharacterSecureField(
+                    text: $text,
+                    revealsText: revealsSecret,
+                    forcesRomanInput: false
+                )
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 22, maxHeight: 22)
+                .clipped()
+
+                Button(action: onToggleReveal) {
+                    Image(systemName: revealsSecret ? "eye.slash" : "eye")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(revealsSecret ? "隐藏内容" : "显示内容")
+            } else {
+                TextField("内容", text: $text)
+                    .textFieldStyle(.roundedBorder)
+                    .scaledFont(size: 13)
+                    .frame(minWidth: 0, maxWidth: .infinity)
+            }
+
+            if isLongValue {
+                Button(action: { showsFullValue = true }) {
+                    Image(systemName: "magnifyingglass")
+                        .scaledFont(size: 12, weight: .medium)
+                        .foregroundColor(.secondary)
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("查看完整内容")
+            }
+        }
+        .frame(minWidth: 0, maxWidth: .infinity)
+        .sheet(isPresented: $showsFullValue) {
+            FullCustomFieldValueView(title: title, value: $text) {
+                showsFullValue = false
+            }
+        }
+    }
+}
+
+private struct FullCustomFieldValueView: View {
+    let title: String
+    @Binding var value: String
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title)
+                    .scaledFont(size: 15, weight: .semibold)
+                    .lineLimit(1)
+
+                Spacer()
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .scaledFont(size: 12, weight: .semibold)
+                        .foregroundColor(.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("关闭")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            TextEditor(text: $value)
+                .scaledFont(size: 13)
+                .padding(12)
+        }
+        .frame(minWidth: 420, minHeight: 240)
+        .appFontSizeScaled()
+    }
+}
+
 // MARK: - 延时遮蔽密码输入
 
 private struct LastCharacterSecureField: NSViewRepresentable {
@@ -469,13 +586,18 @@ private struct LastCharacterSecureField: NSViewRepresentable {
         secureField.textColor = .clear
         secureField.delegate = context.coordinator
         secureField.stringValue = text
+        secureField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        secureField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         (secureField.cell as? NSTextFieldCell)?.allowedInputSourceLocales = allowedInputSourceLocales
 
         maskLabel.translatesAutoresizingMaskIntoConstraints = false
         maskLabel.font = font
         maskLabel.textColor = .labelColor
-        maskLabel.lineBreakMode = .byClipping
+        // 保留输入末尾，长密文也能看到刚输入且延时隐藏的最后一位。
+        maskLabel.lineBreakMode = .byTruncatingHead
         maskLabel.maximumNumberOfLines = 1
+        maskLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        maskLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         container.addSubview(secureField)
         container.addSubview(maskLabel)
@@ -485,7 +607,7 @@ private struct LastCharacterSecureField: NSViewRepresentable {
             secureField.topAnchor.constraint(equalTo: container.topAnchor),
             secureField.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             maskLabel.leadingAnchor.constraint(equalTo: secureField.leadingAnchor, constant: 7),
-            maskLabel.trailingAnchor.constraint(lessThanOrEqualTo: secureField.trailingAnchor, constant: -7),
+            maskLabel.trailingAnchor.constraint(equalTo: secureField.trailingAnchor, constant: -7),
             maskLabel.centerYAnchor.constraint(equalTo: secureField.centerYAnchor)
         ])
 
@@ -572,9 +694,11 @@ private struct LastCharacterSecureField: NSViewRepresentable {
                 maskLabel?.stringValue = value
                 return
             }
-            maskLabel?.stringValue = String(characters.enumerated().map { index, character in
-                revealLast && index == characters.count - 1 ? character : "•"
+            let visibleCharacters = characters.suffix(64)
+            let masked = String(visibleCharacters.enumerated().map { index, character in
+                revealLast && index == visibleCharacters.count - 1 ? character : "•"
             })
+            maskLabel?.stringValue = characters.count > visibleCharacters.count ? "…" + masked : masked
         }
     }
 }

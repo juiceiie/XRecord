@@ -76,6 +76,45 @@ final class DataServiceTests: XCTestCaseBase {
         XCTAssertFalse(card.sharingText(groupName: "资料").contains("   ：内容"))
     }
 
+    func testSharingTextOmitsFieldsWithoutValues() {
+        let standardCard = Card(
+            groupId: "group-id",
+            name: "空值测试",
+            url: "   ",
+            username: "",
+            password: "secret",
+            note: "\n"
+        )
+
+        XCTAssertEqual(
+            standardCard.sharingText(groupName: "测试"),
+            """
+            【XRecord笔记本】
+            分类：测试
+            名称：空值测试
+            密码：secret
+            """
+        )
+
+        let customCard = Card(
+            groupId: "group-id",
+            name: "自定义空值测试",
+            url: "",
+            username: "",
+            password: "",
+            note: "",
+            kind: .custom,
+            customFields: [
+                CustomField(label: "空项", value: "   "),
+                CustomField(label: "有效项", value: "内容")
+            ]
+        )
+        let sharingText = customCard.sharingText(groupName: "测试")
+
+        XCTAssertFalse(sharingText.contains("空项："))
+        XCTAssertTrue(sharingText.contains("有效项：内容"))
+    }
+
     func testRestoringCardFromDeletedGroupUsesExistingGroup() {
         let service = makeDataService(encryption: makeEncryption())
         service.createFile(at: tempURL("restore-existing-group.xrecord"))
@@ -214,6 +253,102 @@ final class DataServiceTests: XCTestCaseBase {
         service.clearMigrationPassphrase()
         XCTAssertFalse(service.hasMigrationPassphrase)
         XCTAssertNil(encryption.storedKeyWrap)
+    }
+
+    func testExternalFileChangeReloadsBoundData() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("external-refresh.xrecord")
+        service.createFile(at: url)
+
+        let remoteData = AppData(
+            groups: [Group(name: "iCloud 分类", colorHex: "#4f6ef7")],
+            cards: [],
+            appTitle: "来自另一台 Mac"
+        )
+        let remoteBlob = try XCTUnwrap(
+            encryption.encrypt(
+                TestCipher.json(remoteData),
+                masterKey: try XCTUnwrap(encryption.cachedMasterKey()),
+                wrap: encryption.storedKeyWrap
+            )
+        )
+        try remoteBlob.write(to: url, options: .atomic)
+
+        service.reloadAfterExternalChange()
+
+        XCTAssertEqual(service.data, remoteData)
+        XCTAssertNotNil(service.lastExternalRefreshDate)
+        XCTAssertEqual(service.fileAvailability, .local)
+    }
+
+    func testExternalChangeBacksUpUnsavedLocalDataBeforeReload() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("conflict-source.xrecord")
+        service.createFile(at: url)
+        service.data.appTitle = "本机尚未保存"
+
+        let remoteData = AppData(appTitle: "来自 iCloud")
+        let remoteBlob = try XCTUnwrap(
+            encryption.encrypt(
+                TestCipher.json(remoteData),
+                masterKey: try XCTUnwrap(encryption.cachedMasterKey()),
+                wrap: encryption.storedKeyWrap
+            )
+        )
+        try remoteBlob.write(to: url, options: .atomic)
+
+        service.reloadAfterExternalChange()
+
+        XCTAssertEqual(service.data, remoteData)
+        XCTAssertNotNil(service.conflictNotice)
+        let backups = try FileManager.default.contentsOfDirectory(
+            at: tempDir,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("conflict-source-conflict-") }
+        XCTAssertEqual(backups.count, 1)
+
+        let backupBlob = try Data(contentsOf: try XCTUnwrap(backups.first))
+        let parsed = try XCTUnwrap(encryption.parse(backupBlob))
+        let plaintext = try XCTUnwrap(
+            encryption.decryptPayload(parsed, masterKey: try XCTUnwrap(encryption.cachedMasterKey()))
+        )
+        XCTAssertEqual(TestCipher.decode(plaintext)?.appTitle, "本机尚未保存")
+    }
+
+    func testSavePreflightDoesNotOverwriteExternalChange() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("save-preflight.xrecord")
+        service.createFile(at: url)
+        service.data.appTitle = "准备保存的本机修改"
+
+        let remoteData = AppData(appTitle: "先到达的 iCloud 修改")
+        let remoteBlob = try XCTUnwrap(
+            encryption.encrypt(
+                TestCipher.json(remoteData),
+                masterKey: try XCTUnwrap(encryption.cachedMasterKey()),
+                wrap: encryption.storedKeyWrap
+            )
+        )
+        try remoteBlob.write(to: url, options: .atomic)
+
+        XCTAssertFalse(service.save())
+        XCTAssertEqual(try Data(contentsOf: url), remoteBlob)
+        XCTAssertEqual(service.data, remoteData)
+        XCTAssertNotNil(service.conflictNotice)
+    }
+
+    func testMissingSavedFileStaysBoundAndShowsUnavailableState() {
+        let missingURL = tempURL("not-downloaded-yet.xrecord")
+        defaults.set(missingURL.path, forKey: "xrecord_file_path")
+
+        let service = makeDataService(encryption: makeEncryption())
+
+        XCTAssertTrue(service.hasBoundFile)
+        XCTAssertEqual(service.currentFileURL, missingURL)
+        XCTAssertTrue(service.fileAvailability.blocksAccess)
     }
 
     func testLegacyFileIsBackedUpBeforeUpgrade() throws {

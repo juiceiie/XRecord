@@ -990,16 +990,40 @@ class DataService: ObservableObject {
     }
 
     // MARK: - 卡片操作
-    func addCard(_ card: Card) {
-        data.cards.append(card)
-        save()
+
+    /// 先更新内存，再尝试落盘；普通写入失败时回滚，外部版本已载入时保留外部版本。
+    private func commitCardMutation(_ mutation: (inout AppData) -> Void) -> Bool {
+        let previousData = data
+        let refreshDateBeforeSave = lastExternalRefreshDate
+        mutation(&data)
+
+        guard !save() else { return true }
+        if lastExternalRefreshDate == refreshDateBeforeSave {
+            data = previousData
+        }
+        return false
     }
 
-    func updateCard(_ card: Card) {
-        if let idx = data.cards.firstIndex(where: { $0.id == card.id }) {
-            data.cards[idx] = card
-            save()
+    @discardableResult
+    func addCard(_ card: Card) -> Bool {
+        var cardToAdd = card
+        if cardToAdd.updatedAt == nil {
+            cardToAdd.updatedAt = cardToAdd.createdAt
         }
+        return commitCardMutation { $0.cards.append(cardToAdd) }
+    }
+
+    @discardableResult
+    func updateCard(_ card: Card) -> Bool {
+        guard let idx = data.cards.firstIndex(where: { $0.id == card.id }) else {
+            return false
+        }
+        var updatedCard = card
+        let existingCard = data.cards[idx]
+        updatedCard.updatedAt = updatedCard.hasContentChanges(comparedTo: existingCard)
+            ? Date()
+            : existingCard.updatedAt
+        return commitCardMutation { $0.cards[idx] = updatedCard }
     }
 
     func deleteCard(id: String) {
@@ -1071,10 +1095,12 @@ class DataService: ObservableObject {
     // MARK: - 收藏夹
 
     /// 切换条目的收藏状态
-    func toggleFavorite(cardID: String) {
-        guard let idx = data.cards.firstIndex(where: { $0.id == cardID }) else { return }
-        data.cards[idx].isFavorite = !data.cards[idx].isFavorited
-        save()
+    @discardableResult
+    func toggleFavorite(cardID: String) -> Bool {
+        guard let idx = data.cards.firstIndex(where: { $0.id == cardID }) else { return false }
+        return commitCardMutation {
+            $0.cards[idx].isFavorite = !$0.cards[idx].isFavorited
+        }
     }
 
     var favoriteCards: [Card] {

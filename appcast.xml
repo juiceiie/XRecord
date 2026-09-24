@@ -3,6 +3,24 @@
     <channel>
         <title>XRecord</title>
         <item>
+            <title>1.5.2</title>
+            <pubDate>Thu, 24 Sep 2026 09:27:26 +0800</pubDate>
+            <link>https://github.com/juiceiie/XRecord</link>
+            <sparkle:version>22</sparkle:version>
+            <sparkle:shortVersionString>1.5.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## XRecord v1.5.2
+
+- 修复绑定文件发生外部变化时，已编辑条目可能未被识别为本地改动的问题；冲突时保留加密备份。
+- 修复条目保存失败后编辑窗口仍然关闭的问题，写入失败时回滚内存数据并保留编辑内容。
+- 条目详情的收藏、编辑、删除和关闭操作统一放到右上角。
+- 条目详情左下角新增“最新更新时间”，仅在条目内容实际改变时更新；收藏或无改动保存不会更新时间。
+- 主界面左下角与设置页统一显示相同的绑定文件状态。
+- 同时支持 Apple 芯片与 Intel Mac。
+]]></description>
+            <enclosure url="https://github.com/juiceiie/XRecord/releases/download/v1.5.2/XRecord-v1.5.2.dmg" length="4900880" type="application/octet-stream" sparkle:edSignature="UCxm1m33tC+VeIJsmsyXWFqLbk9oOUGxDlJbaRalR2syL91qMhrDGfXJBMd34IkaW7Z4mDL4SgJUSWtmWL/+AA=="/>
+        </item>
+        <item>
             <title>1.5.1</title>
             <pubDate>Wed, 23 Sep 2026 23:33:47 +0800</pubDate>
             <link>https://github.com/juiceiie/XRecord</link>

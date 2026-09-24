@@ -374,16 +374,6 @@ extension BoundFileAvailability {
         }
     }
 
-    /// 左下角状态栏使用的简短文案
-    var shortDescription: String {
-        switch self {
-        case .unbound: return "未绑定"
-        case .local: return "本机可用"
-        case .iCloudAvailable: return "iCloud 已同步"
-        case .downloading: return "下载中…"
-        case .unavailable: return "不可用"
-        }
-    }
 }
 
 // MARK: - 全局字体缩放

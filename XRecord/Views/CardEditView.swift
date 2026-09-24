@@ -366,9 +366,12 @@ struct CardEditView: View {
                 c.username = username.trimmingCharacters(in: .whitespaces)
                 c.password = password
             }
-            dataService.updateCard(c)
+            guard dataService.updateCard(c),
+                  let savedCard = dataService.data.cards.first(where: { $0.id == c.id }) else {
+                return
+            }
             isPresented = false
-            onSaved?(c)
+            onSaved?(savedCard)
         } else {
             let newCard = Card(
                 groupId: gid,
@@ -381,9 +384,12 @@ struct CardEditView: View {
                 kind: kind,
                 customFields: kind == .custom ? cleanedCustomFields : nil
             )
-            dataService.addCard(newCard)
+            guard dataService.addCard(newCard),
+                  let savedCard = dataService.data.cards.first(where: { $0.id == newCard.id }) else {
+                return
+            }
             isPresented = false
-            onSaved?(newCard)
+            onSaved?(savedCard)
         }
     }
 }

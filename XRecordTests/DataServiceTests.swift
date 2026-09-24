@@ -317,6 +317,182 @@ final class DataServiceTests: XCTestCaseBase {
         XCTAssertEqual(TestCipher.decode(plaintext)?.appTitle, "本机尚未保存")
     }
 
+    func testExternalChangeBacksUpUnsavedExistingCardEditBeforeReload() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("edited-card-conflict.xrecord")
+        service.createFile(at: url)
+
+        let card = Card(
+            groupId: "group-id",
+            name: "账号",
+            url: "",
+            username: "user",
+            password: "old-password",
+            note: ""
+        )
+        XCTAssertTrue(service.addCard(card))
+        service.data.cards[0].password = "locally-edited-password"
+
+        let remoteData = AppData(
+            cards: [Card(
+                id: card.id,
+                groupId: card.groupId,
+                name: card.name,
+                url: "",
+                username: "remote-user",
+                password: "remote-password",
+                note: ""
+            )]
+        )
+        let remoteBlob = try XCTUnwrap(
+            encryption.encrypt(
+                TestCipher.json(remoteData),
+                masterKey: try XCTUnwrap(encryption.cachedMasterKey()),
+                wrap: encryption.storedKeyWrap
+            )
+        )
+        try remoteBlob.write(to: url, options: .atomic)
+
+        service.reloadAfterExternalChange()
+
+        XCTAssertEqual(service.data, remoteData)
+        let backups = try FileManager.default.contentsOfDirectory(
+            at: tempDir,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("edited-card-conflict-conflict-") }
+        XCTAssertEqual(backups.count, 1)
+
+        let backupBlob = try Data(contentsOf: try XCTUnwrap(backups.first))
+        let parsed = try XCTUnwrap(encryption.parse(backupBlob))
+        let plaintext = try XCTUnwrap(
+            encryption.decryptPayload(parsed, masterKey: try XCTUnwrap(encryption.cachedMasterKey()))
+        )
+        XCTAssertEqual(TestCipher.decode(plaintext)?.cards.first?.password, "locally-edited-password")
+    }
+
+    func testUpdateCardReturnsFailureWhenExternalChangeWins() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("update-card-preflight.xrecord")
+        service.createFile(at: url)
+
+        let card = Card(
+            groupId: "group-id",
+            name: "本机条目",
+            url: "",
+            username: "local-user",
+            password: "password",
+            note: ""
+        )
+        XCTAssertTrue(service.addCard(card))
+
+        let remoteData = AppData(appTitle: "外部版本")
+        let remoteBlob = try XCTUnwrap(
+            encryption.encrypt(
+                TestCipher.json(remoteData),
+                masterKey: try XCTUnwrap(encryption.cachedMasterKey()),
+                wrap: encryption.storedKeyWrap
+            )
+        )
+        try remoteBlob.write(to: url, options: .atomic)
+
+        var editedCard = card
+        editedCard.username = "edited-user"
+        XCTAssertFalse(service.updateCard(editedCard))
+        XCTAssertEqual(service.data, remoteData)
+    }
+
+    func testUpdatingCardPersistsLatestUpdatedAt() throws {
+        let encryption = makeEncryption()
+        let service = makeDataService(encryption: encryption)
+        let url = tempURL("card-updated-at.xrecord")
+        service.createFile(at: url)
+
+        var card = Card(
+            groupId: "group-id",
+            name: "更新时间测试",
+            url: "",
+            username: "before",
+            password: "",
+            note: ""
+        )
+        card.createdAt = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(service.addCard(card))
+
+        card.username = "after"
+        XCTAssertTrue(service.updateCard(card))
+        let updatedAt = try XCTUnwrap(service.data.cards.first?.updatedAt)
+        XCTAssertGreaterThan(updatedAt, card.createdAt)
+
+        let reloaded = makeDataService(encryption: encryption)
+        XCTAssertTrue(reloaded.bind(to: url))
+        XCTAssertEqual(
+            try XCTUnwrap(reloaded.data.cards.first?.updatedAt).timeIntervalSince1970,
+            updatedAt.timeIntervalSince1970,
+            accuracy: 1
+        )
+    }
+
+    func testFavoriteChangeDoesNotUpdateCardTimestamp() throws {
+        let service = makeDataService(encryption: makeEncryption())
+        service.createFile(at: tempURL("favorite-keeps-updated-at.xrecord"))
+
+        let originalDate = Date(timeIntervalSince1970: 1_000)
+        var card = Card(
+            groupId: "group-id",
+            name: "收藏测试",
+            url: "",
+            username: "",
+            password: "",
+            note: ""
+        )
+        card.createdAt = originalDate
+        card.updatedAt = originalDate
+        XCTAssertTrue(service.addCard(card))
+
+        XCTAssertTrue(service.toggleFavorite(cardID: card.id))
+        let savedCard = try XCTUnwrap(service.data.cards.first)
+        XCTAssertTrue(savedCard.isFavorited)
+        XCTAssertEqual(savedCard.updatedAt, originalDate)
+    }
+
+    func testSavingUnchangedCardDoesNotUpdateTimestamp() throws {
+        let service = makeDataService(encryption: makeEncryption())
+        service.createFile(at: tempURL("unchanged-card-keeps-updated-at.xrecord"))
+
+        let originalDate = Date(timeIntervalSince1970: 1_000)
+        var card = Card(
+            groupId: "group-id",
+            name: "未修改测试",
+            url: "",
+            username: "same-user",
+            password: "",
+            note: ""
+        )
+        card.createdAt = originalDate
+        card.updatedAt = originalDate
+        XCTAssertTrue(service.addCard(card))
+
+        XCTAssertTrue(service.updateCard(card))
+        XCTAssertEqual(try XCTUnwrap(service.data.cards.first).updatedAt, originalDate)
+    }
+
+    func testAddCardRollsBackInMemoryWhenSaveFails() {
+        let service = makeDataService(encryption: makeEncryption())
+        let card = Card(
+            groupId: "group-id",
+            name: "不应残留",
+            url: "",
+            username: "",
+            password: "",
+            note: ""
+        )
+
+        XCTAssertFalse(service.addCard(card))
+        XCTAssertTrue(service.data.cards.isEmpty)
+    }
+
     func testSavePreflightDoesNotOverwriteExternalChange() throws {
         let encryption = makeEncryption()
         let service = makeDataService(encryption: encryption)

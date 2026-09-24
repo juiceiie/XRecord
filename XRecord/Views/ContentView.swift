@@ -900,8 +900,9 @@ struct GroupListView: View {
                     } else {
                         Image(systemName: dataService.fileAvailability.iconName)
                     }
-                    Text(dataService.fileAvailability.shortDescription)
+                    Text(dataService.fileAvailability.description)
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
                 .scaledFont(size: 10)
                 .foregroundColor(dataService.fileAvailability.tintColor)
@@ -2022,6 +2023,12 @@ struct CardDetailView: View {
                 Spacer()
 
                 // 操作统一放在右上角
+                headerActionButton(
+                    icon: isFavorited ? "star.fill" : "star",
+                    help: isFavorited ? "取消收藏" : "收藏",
+                    foregroundColor: isFavorited ? .yellow : .secondary,
+                    action: { onToggleFavorite?() }
+                )
                 headerActionButton(icon: "pencil", help: "编辑", action: onEdit)
                 headerActionButton(icon: "trash", help: "删除", action: { showDeleteConfirm = true })
                 headerActionButton(icon: "xmark", help: "关闭", action: onClose)
@@ -2079,17 +2086,10 @@ struct CardDetailView: View {
 
             Divider()
 
-            HStack(spacing: 10) {
-                Button(action: { onToggleFavorite?() }) {
-                    Image(systemName: isFavorited ? "star.fill" : "star")
-                        .scaledFont(size: 16, weight: .medium)
-                        .foregroundColor(isFavorited ? .yellow : .secondary)
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(isFavorited ? "取消收藏" : "收藏")
-
+            HStack {
+                Text("最新更新时间：\(Self.updatedAtFormatter.string(from: latestUpdatedAt))")
+                    .scaledFont(size: 11)
+                    .foregroundColor(.secondary)
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -2106,11 +2106,29 @@ struct CardDetailView: View {
         .appFontSizeScaled()
     }
 
-    private func headerActionButton(icon: String, help: String, action: @escaping () -> Void) -> some View {
+    private static let updatedAtFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy年M月d日 HH:mm:ss"
+        return formatter
+    }()
+
+    private var latestUpdatedAt: Date {
+        dataService.data.cards.first(where: { $0.id == card.id })?.latestUpdatedAt
+            ?? card.latestUpdatedAt
+    }
+
+    private func headerActionButton(
+        icon: String,
+        help: String,
+        foregroundColor: Color = .secondary,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: icon)
                 .scaledFont(size: 13, weight: .medium)
-                .foregroundColor(.secondary)
+                .foregroundColor(foregroundColor)
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
@@ -2402,7 +2420,10 @@ struct SettingsView: View {
         } message: {
             Text(launchAtLoginService.errorMessage ?? "请稍后重试。")
         }
-        .onAppear { launchAtLoginService.refresh() }
+        .onAppear {
+            launchAtLoginService.refresh()
+            dataService.refreshFileAvailability()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             launchAtLoginService.refresh()
         }

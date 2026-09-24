@@ -2,6 +2,21 @@ import Foundation
 
 // MARK: - 数据模型
 
+private func datesMatchAtPersistedPrecision(_ lhs: Date, _ rhs: Date) -> Bool {
+    Int64(lhs.timeIntervalSince1970) == Int64(rhs.timeIntervalSince1970)
+}
+
+private func optionalDatesMatchAtPersistedPrecision(_ lhs: Date?, _ rhs: Date?) -> Bool {
+    switch (lhs, rhs) {
+    case (.none, .none):
+        return true
+    case let (.some(lhs), .some(rhs)):
+        return datesMatchAtPersistedPrecision(lhs, rhs)
+    default:
+        return false
+    }
+}
+
 struct AppData: Codable, Equatable {
     var groups: [Group]
     var cards: [Card]
@@ -28,6 +43,9 @@ struct Group: Codable, Identifiable, Equatable {
 
     static func == (lhs: Group, rhs: Group) -> Bool {
         lhs.id == rhs.id
+            && lhs.name == rhs.name
+            && lhs.colorHex == rhs.colorHex
+            && datesMatchAtPersistedPrecision(lhs.createdAt, rhs.createdAt)
     }
 }
 
@@ -70,6 +88,8 @@ struct Card: Codable, Identifiable, Equatable {
     var kind: CardKind? = nil
     var customFields: [CustomField]? = nil
     var createdAt: Date = Date()
+    /// 旧版本文件没有该字段，因此保持可选并回退到创建时间。
+    var updatedAt: Date? = nil
 
     var isCredentialPanelEnabled: Bool {
         showsCredentialPanel ?? true
@@ -89,6 +109,23 @@ struct Card: Codable, Identifiable, Equatable {
 
     var isCustom: Bool {
         cardKind == .custom
+    }
+
+    var latestUpdatedAt: Date {
+        updatedAt ?? createdAt
+    }
+
+    /// 只比较用户可编辑的条目内容，不包含收藏、回收站状态和时间元数据。
+    func hasContentChanges(comparedTo other: Card) -> Bool {
+        groupId != other.groupId
+            || name != other.name
+            || url != other.url
+            || username != other.username
+            || password != other.password
+            || note != other.note
+            || showsCredentialPanel != other.showsCredentialPanel
+            || cardKind != other.cardKind
+            || customFields != other.customFields
     }
 
     /// 自定义条目中有效（内容非空）的小项
@@ -138,5 +175,18 @@ struct Card: Codable, Identifiable, Equatable {
 
     static func == (lhs: Card, rhs: Card) -> Bool {
         lhs.id == rhs.id
+            && lhs.groupId == rhs.groupId
+            && lhs.name == rhs.name
+            && lhs.url == rhs.url
+            && lhs.username == rhs.username
+            && lhs.password == rhs.password
+            && lhs.note == rhs.note
+            && lhs.showsCredentialPanel == rhs.showsCredentialPanel
+            && lhs.isFavorite == rhs.isFavorite
+            && optionalDatesMatchAtPersistedPrecision(lhs.deletedAt, rhs.deletedAt)
+            && lhs.kind == rhs.kind
+            && lhs.customFields == rhs.customFields
+            && datesMatchAtPersistedPrecision(lhs.createdAt, rhs.createdAt)
+            && optionalDatesMatchAtPersistedPrecision(lhs.updatedAt, rhs.updatedAt)
     }
 }
